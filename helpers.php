@@ -89,7 +89,8 @@ function calculateAttendanceFromTimes(
     if ($inSec === null || $outSec === null) return $result;
 
     // Handle overnight: if checkout <= checkin treat as next-day
-    if ($outSec <= $inSec) $outSec += 86400;
+     $isOvernight = ($outSec <= $inSec);
+    if ($isOvernight) $outSec += 86400;
 
     $durationSec = $outSec - $inSec;
     $durationHrs = $durationSec / 3600.0;
@@ -115,7 +116,7 @@ function calculateAttendanceFromTimes(
     }
 
     // Night allowance from check-out time + day of week
-    $result['night_shift_hours'] = calculateNightAllowance($checkOut, $dayOfWeek);
+    $result['night_shift_hours'] = $isOvernight ? calculateNightAllowance($checkOut, $dayOfWeek) : 0.0;
 
     return $result;
 }

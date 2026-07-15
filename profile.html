@@ -320,8 +320,8 @@ body{font-family:var(--font-main);background:var(--bg-dark);color:var(--text);mi
               <div class="col-6"><label class="form-label">Status</label><select class="form-select"><option selected>Active</option><option>Inactive</option></select></div>
               <div class="col-6"><label class="form-label">Phone</label><input type="text" class="form-control" value="010-1234-5678"></div>
               <div class="col-6"><label class="form-label">Email</label><input type="email" class="form-control" value="kimjunho@email.com"></div>
-              <div class="col-6"><label class="form-label">Date of Birth</label><input type="date" class="form-control" value="1990-06-15"></div>
-              <div class="col-6"><label class="form-label">Join Date</label><input type="date" class="form-control" value="2024-03-01"></div>
+              <div class="col-6"><label class="form-label">Date of Birth</label><input type="date" class="form-control" id="profdob" value="1990-06-15"></div>
+              <div class="col-6"><label class="form-label">Join Date</label><input type="date" class="form-control" id="profjoin" value="2024-03-01"></div>
               <div class="col-6"><label class="form-label">Nationality</label><input type="text" class="form-control" value="South Korean"></div>
               <div class="col-6"><label class="form-label">ID / Passport No.</label><input type="text" class="form-control" value="KR-901234-1234567"></div>
               <div class="col-6"><label class="form-label">Emergency Contact</label><input type="text" class="form-control" value="010-9999-8888"></div>
@@ -400,6 +400,14 @@ const attRecords = [
   {date:'2026-06-10',day:'Tue',type:'half_day',w:4,ot:0,night:0,hol:0,note:'Medical'},
 ];
 
+function fmtDMY(dateStr){
+  if(!dateStr) return '-';
+  const s=String(dateStr).slice(0,10);
+  const p=s.split('-');
+  if(p.length!==3) return dateStr;
+  return `${p[2]}/${p[1]}/${p[0]}`;
+}
+
 function renderAttHistory() {
   const tbody = document.getElementById('attHistoryBody');
   if (!tbody) return;
@@ -410,7 +418,7 @@ function renderAttHistory() {
     const typeColors = {full_day:'var(--success)',half_day:'var(--warning)',absent:'var(--accent)',paid_leave:'var(--info)',unpaid_leave:'#7C3AED'};
     const typeLabels = {full_day:'Full Day',half_day:'Half Day',absent:'Absent',paid_leave:'Paid Leave',unpaid_leave:'Unpaid Leave'};
     return `<tr>
-      <td style="font-family:var(--font-mono);font-size:12px;color:var(--text-muted)">${a.date}</td>
+      <td style="font-family:var(--font-mono);font-size:12px;color:var(--text-muted)">${fmtdmy(a.date)}</td>
       <td style="font-size:12px;color:var(--text-dim)">${a.day}</td>
       <td><span style="color:${typeColors[a.type]};font-size:12px;font-weight:600">● ${typeLabels[a.type]}</span></td>
       <td style="font-family:var(--font-mono);color:var(--success)">${a.w||'—'}</td>
@@ -511,6 +519,10 @@ function renderAudit() {
 
 document.addEventListener('DOMContentLoaded',()=>{
   renderAttHistory(); renderPayHistory(); renderDocs(); renderAudit();
+  ['profDob','profJoin'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el) flatpickr(el,{dateFormat:'Y-m-d',altInput:true,altFormat:'d/m/Y',allowInput:true});
+  });
 });
 </script>
 </body>

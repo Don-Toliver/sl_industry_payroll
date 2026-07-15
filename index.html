@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SL Industry — Payroll Management System</title>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Pretendard:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -1645,7 +1649,7 @@ body {
           </div>
           <div class="col-md-6">
             <label class="form-label">Date *</label>
-            <input type="date" class="form-control" id="attDateModal" onchange="calcAttFromTimes()">
+           <input type="date" class="form-control" id="attDateModal" lang="en-GB" onchange="calcAttFromTimes()">
           </div>
           <div class="col-md-6">
             <label class="form-label">Attendance Type *</label>
@@ -1807,10 +1811,16 @@ body {
   </div>
 </div>
 
+
+
+
+
+
 <!-- ═══════════════════════════════════════════
      SCRIPTS
 ════════════════════════════════════════════ -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 <script>
 // ── API HELPER ────────────────────────────────────
 const API = 'api.php';
@@ -1971,6 +1981,15 @@ function toggleSidebar(force) {
 }
 function closeSidebar(){toggleSidebar(false);}
 
+
+function fmtDMY(dateStr){
+  if(!dateStr) return '-';
+  const s=String(dateStr).slice(0,10);
+  const p=s.split('-');
+  if(p.length!==3) return dateStr;
+  return `${p[2]}.${p[1]}.${p[0]}`;
+}
+
 function showModal(id) {
   if (id==='addEmployeeModal'){currentEditId=null;resetEmployeeForm();}
   if (id==='addAttendanceModal'){attHoursManuallyEdited=false;setTimeout(updateAttHours,50);}
@@ -2095,7 +2114,8 @@ function renderEmployees(list) {
       </div></td>
       <td><span class="badge-status badge-${e.employee_type}">● ${e.employee_type==='korean'?'Korean':'Foreign'}</span></td>
       <td style="font-family:var(--font-mono);font-size:12px;color:var(--text-muted)">${e.phone||'-'}</td>
-      <td style="font-size:12px;color:var(--text-muted)">${e.join_date||'-'}</td>
+  
+      <td style="font-size:12px;color:var(--text-muted)">${fmtDMY(e.join_date)}</td>
       <td style="font-family:var(--font-mono);color:var(--success)">₩${Number(e.hourly_rate).toLocaleString()}</td>
       <td style="font-family:var(--font-mono);color:var(--accent2)">${e.tax_rate}%</td>
       <td style="font-size:12px">${e.bank_name||'-'}</td>
@@ -2127,7 +2147,7 @@ function populateEmployeeSelects(list) {
 function resetEmployeeForm() {
   const m=document.getElementById('addEmployeeModal');
   if (!m) return;
-  m.querySelectorAll('input,textarea').forEach(el=>{if(el.id!=='empTaxRate')el.value='';});
+  m.querySelectorAll('input,textarea').forEach(el=>{if(el.id!=='empTaxRate'){if(el._flatpickr)el._flatpickr.clear();else el.value='';}});
   m.querySelectorAll('select').forEach(el=>el.selectedIndex=0);
   const taxEl=document.getElementById('empTaxRate');
   if (taxEl) taxEl.value='3.3';
@@ -2141,7 +2161,7 @@ async function editEmployee(id) {
   const e=res.data; currentEditId=id;
   const m=document.getElementById('addEmployeeModal');
   if (!m) return;
-  const set=(fid,val)=>{const el=document.getElementById(fid);if(el)el.value=val||'';};
+  const set=(fid,val)=>{const el=document.getElementById(fid);if(!el)return;if(el._flatpickr)el._flatpickr.setDate(val||'',true);else el.value=val||'';};
   set('empId',e.employee_id);set('empName',e.full_name);set('empPhone',e.phone);
   set('empEmail',e.email);set('empCountry',e.country||e.nationality);set('empDob',e.date_of_birth);
   set('empJoin',e.join_date);set('empIdCard',e.id_card_passport_number);
@@ -2726,9 +2746,11 @@ async function calcAttFromTimes() {
 
   if (!['full_day', 'half_day'].includes(type)) return;
 
-  let inMins  = inH24  * 60 + ciM;
+ let inMins  = inH24  * 60 + ciM;
   let outMins = outH24 * 60 + coM;
-  if (outMins <= inMins) outMins += 24 * 60; // overnight
+  const isOvernight = outMins <= inMins;
+  if (isOvernight) outMins += 24 * 60; // overnight
+
 
   const totalMins  = outMins - inMins;
   const lunchMins  = totalMins > 60 ? 60 : 0;
@@ -2757,7 +2779,7 @@ async function calcAttFromTimes() {
   }
 
  // Night allowance — checkout 00:30–11:59: Saturday = 2 hrs, other days = 3 hrs
-  const isNightWindow = (outH24 === 0 && coM >= 30) || (outH24 >= 1 && outH24 <= 11);
+  const isNightWindow = isOvernight && ((outH24 === 0 && coM >= 30) || (outH24 >= 1 && outH24 <= 11));
   let nightHrs = 0;
   if (isNightWindow) {
     const shiftDow = dateVal ? new Date(dateVal + 'T00:00:00').getDay() : null; // 0=Sun...6=Sat
@@ -2767,9 +2789,7 @@ async function calcAttFromTimes() {
   document.getElementById('attWorkHrs').value  = basicHrs.toFixed(1);
   document.getElementById('attOTHrs').value    = otHrs.toFixed(1);
   document.getElementById('attNightHrs').value = nightHrs.toFixed(1);
-  document.getElementById('attHolHrs').value   = holHrs.toFixed(1);
-}
-
+  }
 
 function initTimeSelectors() {
   const hourIds = ['attCheckInH', 'attCheckOutH'];
@@ -2791,12 +2811,12 @@ function initTimeSelectors() {
   minIds.forEach(id => {
     const sel = document.getElementById(id);
     if (!sel) return;
-    [0, 15, 30, 45].forEach(m => {
+    for (let m = 0; m <= 59; m++) {
       const o = document.createElement('option');
       o.value = m;
       o.textContent = String(m).padStart(2, '0');
       sel.appendChild(o);
-    });
+    }
     sel.value = 0;
   });
 
@@ -2980,7 +3000,8 @@ async function loadAdvances(){
   if(!res.data.length){tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--text-muted)">No advances recorded</td></tr>';return;}
   tbody.innerHTML=res.data.map(a=>`<tr>
     <td>${a.full_name} <span style="color:var(--text-muted);font-size:12px">${a.emp_code}</span></td>
-    <td style="font-family:var(--font-mono)">${a.advance_date}</td>
+
+    <td style="font-family:var(--font-mono)">${fmtDMY(a.advance_date)}</td>
     <td style="font-family:var(--font-mono);color:var(--warning)">₩${Number(a.amount).toLocaleString()}</td>
     <td>${a.reason||'-'}</td>
     <td><span class="badge-status badge-${a.status}">● ${a.status}</span></td>
@@ -3208,7 +3229,7 @@ async function loadHolidays(){
     const date=new Date(h.holiday_date+'T00:00:00');
     const isWknd=date.getDay()===0||date.getDay()===6;
     return `<tr>
-      <td style="font-family:var(--font-mono);font-size:12px;color:${isWknd?'var(--accent)':'var(--text-muted)'}">${h.holiday_date}</td>
+      <td ...>${fmtDMY(h.holiday_date)}</td>
       <td style="font-size:12px;color:${isWknd?'var(--accent)':'var(--text-muted)'}">${dn[date.getDay()]}</td>
       <td>${h.holiday_name_en}</td><td>${h.holiday_name_kr||''}</td>
       <td><span class="badge-status" style="background:rgba(76,201,240,.1);color:var(--info)">● ${h.is_recurring?'Recurring':'One-time'}</span></td>
@@ -3702,6 +3723,12 @@ document.addEventListener('DOMContentLoaded',function(){
   initApp();
   showPage('dashboard');
 
+  // ── DATE PICKERS: display dd/mm/yyyy, keep underlying value as yyyy-mm-dd ──
+['empDob','empJoin','attDateModal','advDate'].forEach(id=>{
+  const el=document.getElementById(id);
+  if(el) flatpickr(el,{dateFormat:'Y-m-d',altInput:true,altFormat:'d/m/Y',allowInput:true});
+});
+
 
 
 
@@ -3852,7 +3879,7 @@ async function rptCSV(type) {
       const rows=all.filter(r=>parseFloat(r.overtime_hours)>0);
       if(!rows.length){showToast('해당 기간에 초과근무 데이터가 없습니다.','error');return;}
       downloadCSV('overtime_'+y+'-'+String(m).padStart(2,'0')+'.csv',
-        rows.map(r=>[r.attendance_date,r.full_name||r.employee_name,r.work_hours,r.overtime_hours,r.night_shift_hours,r.attendance_type]),
+        rows.map(r=>[fmtDMY(r.attendance_date),r.full_name||r.employee_name,r.work_hours,r.overtime_hours,r.night_shift_hours,r.attendance_type]),
         ['날짜','성명','근무시간','초과근무시간','야간근무시간','근태유형']);
     }
     if(type==='summary'){
@@ -3873,7 +3900,8 @@ async function rptPDF(type) {
   showToast((currentLang==='kr'?'PDF 미리보기를 준비 중입니다...':'Preparing PDF preview...'),'info');
   const fmt=v=>Number(v||0).toLocaleString('ko-KR');
   const isKr=currentLang==='kr';
-  const typ=e=>e==='korean'?(isKr?'한국인':'Korean'):(isKr?'외국인':'Foreign');
+  const typ=e=>e==='korean'?(isKr?'한국인':'Korean'):(
+e==='foreigner'?(isKr?'외국인':'Foreigner'):(isKr?'기타':'Other'));
   const L={
     name:isKr?'성명':'Name', empid:isKr?'사원번호':'Emp ID', type:isKr?'구분':'Type',
     phone:isKr?'전화번호':'Phone', email:'Email', joindate:isKr?'입사일':'Join Date',
@@ -3906,7 +3934,7 @@ async function rptPDF(type) {
       const rows=res?.employees||res?.data||[];
       if(!rows.length){showToast(L.nodata,'error');return;}
       const th='<tr><th>'+L.name+'</th><th>'+L.empid+'</th><th>'+L.type+'</th><th>'+L.phone+'</th><th>'+L.email+'</th><th>'+L.joindate+'</th><th>'+L.hourly+'</th><th>'+L.taxrate+'</th><th>'+L.status+'</th></tr>';
-      const tb=rows.map(r=>'<tr><td>'+r.full_name+'</td><td>'+r.employee_id+'</td><td>'+typ(r.employee_type)+'</td><td>'+(r.phone||'-')+'</td><td>'+(r.email||'-')+'</td><td>'+(r.join_date||'-')+'</td><td>'+fmt(r.hourly_rate)+'</td><td>'+r.tax_rate+'%</td><td>'+r.employment_status+'</td></tr>').join('');
+      const tb=rows.map(r=>'<tr><td>'+r.full_name+'</td><td>'+r.employee_id+'</td><td>'+typ(r.employee_type)+'</td><td>'+(r.phone||'-')+'</td><td>'+(r.email||'-')+'</td><td>'+fmtDMY(r.join_date)+'</td><td>'+fmt(r.hourly_rate)+'</td><td>'+r.tax_rate+'%</td><td>'+r.employment_status+'</td></tr>').join('');
       openPrintWindow(L.empRpt,'<table><thead>'+th+'</thead><tbody>'+tb+'</tbody></table>');
     }
     else if(type==='attendance'){

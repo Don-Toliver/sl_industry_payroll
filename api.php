@@ -770,8 +770,9 @@ if ($action === 'mark_payroll_paid') {
 // DASHBOARD
 // ============================================================
 if ($action === 'get_dashboard') {
-    $totalEmp  = (int)(db()->fetchOne("SELECT COUNT(*) AS c FROM employees")['c'] ?? 0);
-    $activeEmp = (int)(db()->fetchOne("SELECT COUNT(*) AS c FROM employees WHERE employment_status='active'")['c'] ?? 0);
+   // NEW
+$totalEmp  = (int)(db()->fetchOne("SELECT COUNT(*) AS c FROM employees WHERE deleted_at IS NULL")['c'] ?? 0);
+$activeEmp = (int)(db()->fetchOne("SELECT COUNT(*) AS c FROM employees WHERE deleted_at IS NULL AND employment_status='active'")['c'] ?? 0);
     $year  = (int)date('Y'); $month = (int)date('n');
     $payrollRow = db()->fetchOne(
         "SELECT COALESCE(SUM(pr.net_salary),0) AS total FROM payroll_records pr
@@ -786,17 +787,19 @@ if ($action === 'get_dashboard') {
          JOIN payroll_periods pp ON pr.payroll_period_id=pp.id
          ORDER BY pr.created_at DESC LIMIT 5"
     );
+   // NEW
    $attSummary = db()->fetchOne(
         "SELECT
-            SUM(CASE WHEN attendance_type='full_day' THEN 1 ELSE 0 END) AS full_days,
-            SUM(CASE WHEN overtime_hours>0 THEN 1 ELSE 0 END) AS overtime_days,
-            SUM(CASE WHEN attendance_type='absent' THEN 1 ELSE 0 END) AS absences,
-            SUM(CASE WHEN night_shift_hours>0 THEN 1 ELSE 0 END) AS night_shifts,
-            SUM(CASE WHEN is_holiday=1 THEN 1 ELSE 0 END) AS public_holidays,
-            SUM(overtime_hours) AS total_overtime_hours,
+            SUM(CASE WHEN a.attendance_type='full_day' THEN 1 ELSE 0 END) AS full_days,
+            SUM(CASE WHEN a.overtime_hours>0 THEN 1 ELSE 0 END) AS overtime_days,
+            SUM(CASE WHEN a.attendance_type='absent' THEN 1 ELSE 0 END) AS absences,
+            SUM(CASE WHEN a.night_shift_hours>0 THEN 1 ELSE 0 END) AS night_shifts,
+            SUM(CASE WHEN a.is_holiday=1 THEN 1 ELSE 0 END) AS public_holidays,
+            SUM(a.overtime_hours) AS total_overtime_hours,
             COUNT(*) AS total_records
-         FROM attendance
-         WHERE YEAR(attendance_date)=? AND MONTH(attendance_date)=?", [$year,$month]
+         FROM attendance a
+         JOIN employees e ON a.employee_id = e.id
+         WHERE e.deleted_at IS NULL AND YEAR(a.attendance_date)=? AND MONTH(a.attendance_date)=?", [$year,$month]
     );
 
     $prevMonth = $month - 1; $prevYear = $year;

@@ -46,15 +46,26 @@ $action = trim($_REQUEST['action'] ?? '');
 
 $body  = [];
 $raw   = file_get_contents('php://input');
-if ($raw) { $decoded = json_decode($raw, true); if (is_array($decoded)) $body = $decoded; }
+if ($raw) {
+    $decoded = json_decode($raw, true);
+    if (is_array($decoded)) {
+        $body = $decoded;
+    }
+}
 $input = array_merge($_POST, $body);
+
+define('PHP_OUTPUT_STREAM', 'php://output');
 
 function p(string $key, mixed $default = null): mixed { global $input; return $input[$key] ?? $default; }
 function g(string $key, mixed $default = null): mixed { return $_GET[$key] ?? $default; }
 function ok(mixed $data = null, string $msg = ''): void {
     $r = ['success' => true];
-    if ($data !== null) $r['data'] = $data;
-    if ($msg)           $r['message'] = $msg;
+    if ($data !== null) {
+        $r['data'] = $data;
+    }
+    if ($msg) {
+        $r['message'] = $msg;
+    }
     echo json_encode($r); exit;
 }
 function fail(string $msg, int $code = 400): void {
@@ -64,9 +75,13 @@ function fail(string $msg, int $code = 400): void {
 function require_fields(array $keys): void {
     global $input;
     foreach ($keys as $k) {
-        if (!isset($input[$k]) || $input[$k] === '') fail("Field '$k' is required.");
+        if (!isset($input[$k]) || $input[$k] === '') {
+            fail("Field '$k' is required.");
+        }
     }
 }
+
+define('ERROR_MISSING_ID', 'Missing id.');
 
 try {
 
@@ -107,9 +122,13 @@ if ($action === 'get_employees') {
 
 if ($action === 'get_employee') {
     $id = (int)g('id',0);
-    if (!$id) fail('Missing id.');
+    if (!$id) {
+        fail(ERROR_MISSING_ID);
+    }
     $row = db()->fetchOne("SELECT * FROM employees WHERE id = ?", [$id]);
-    if (!$row) fail('Employee not found.');
+    if (!$row) {
+        fail('Employee not found.');
+    }
     $row['account_number']          = decryptField($row['account_number_enc'] ?? null);
     $row['id_card_passport_number'] = decryptField($row['id_card_passport_number_enc'] ?? null);
     unset($row['account_number_enc'],$row['account_number_hash'],
@@ -121,32 +140,56 @@ if ($action === 'save_employee') {
     require_fields(['employee_id','full_name','join_date','hourly_rate']);
     $id     = (int)p('id', 0);
     $type   = strtolower(p('employee_type','korean'));
-    if (!in_array($type,['korean','foreign'])) $type = 'korean';
+    if (!in_array($type,['korean','foreign'])) {
+        $type = 'korean';
+    }
     $status = strtolower(p('employment_status','active'));
-    if (!in_array($status,['active','inactive'])) $status = 'active';
+    if (!in_array($status,['active','inactive'])) {
+        $status = 'active';
+    }
 
     // ── Full backend validation ──────────────────────────────
-    if (empty(trim((string)p('phone','')))) fail('Phone number is required.');
-    if (empty(trim((string)p('country','')))) fail('Country is required.');
-    if (empty(trim((string)p('bank_name','')))) fail('Bank name is required.');
+    if (empty(trim((string)p('phone','')))) {
+        fail('Phone number is required.');
+    }
+    if (empty(trim((string)p('country','')))) {
+        fail('Country is required.');
+    }
+    if (empty(trim((string)p('bank_name','')))) {
+        fail('Bank name is required.');
+    }
 
     $accountNumber = trim((string)p('account_number',''));
-    if ($accountNumber === '') fail('Account number is required.');
-    if (!ctype_digit($accountNumber)) fail('Account number must be numeric digits only.');
+    if ($accountNumber === '') {
+        fail('Account number is required.');
+    }
+    if (!ctype_digit($accountNumber)) {
+        fail('Account number must be numeric digits only.');
+    }
 
-    if (empty(trim((string)p('account_holder_name','')))) fail('Account holder name is required.');
+    if (empty(trim((string)p('account_holder_name','')))) {
+        fail('Account holder name is required.');
+    }
 
     $idCardNo = trim((string)p('id_card_passport_number',''));
-    if ($idCardNo === '') fail('ID card / passport number is required.');
+    if ($idCardNo === '') {
+        fail('ID card / passport number is required.');
+    }
 
     $hourlyRate = (float)p('hourly_rate', 0);
-    if ($hourlyRate <= 0) fail('Hourly rate must be greater than zero.');
+    if ($hourlyRate <= 0) {
+        fail('Hourly rate must be greater than zero.');
+    }
 
     $taxRate = (float)p('tax_rate', 3.3);
-    if ($taxRate < 0 || $taxRate > 100) fail('Tax rate must be between 0 and 100.');
+    if ($taxRate < 0 || $taxRate > 100) {
+        fail('Tax rate must be between 0 and 100.');
+    }
 
     $joinDate = p('join_date');
-    if ($joinDate > date('Y-m-d')) fail('Join date cannot be a future date.');
+    if ($joinDate > date('Y-m-d')) {
+        fail('Join date cannot be a future date.');
+    }
 
     // ── Duplicate checks ────────────────────────────────────
     $notSelf = $id ? " AND id <> $id" : '';
@@ -154,14 +197,18 @@ if ($action === 'save_employee') {
         "SELECT id FROM employees WHERE employee_id = ? AND deleted_at IS NULL$notSelf",
         [p('employee_id')]
     );
-    if ($dupEmpId) fail('Employee ID already exists. Please use a unique Employee ID.');
+    if ($dupEmpId) {
+        fail('Employee ID already exists. Please use a unique Employee ID.');
+    }
 
     $idCardHash = hashField($idCardNo);
     $dupIdCard  = db()->fetchOne(
         "SELECT id FROM employees WHERE id_card_passport_hash = ? AND deleted_at IS NULL$notSelf",
         [$idCardHash]
     );
-    if ($dupIdCard) fail('ID card / passport number is already registered to another employee.');
+    if ($dupIdCard) {
+        fail('ID card / passport number is already registered to another employee.');
+    }
 
     // ── Encrypt sensitive fields ─────────────────────────────
     $accEnc     = encryptField($accountNumber);
@@ -205,9 +252,13 @@ if ($action === 'save_employee') {
 
 if ($action === 'delete_employee') {
     $id = (int)p('id',0);
-    if (!$id) fail('Missing id.');
+    if (!$id) {
+        fail(ERROR_MISSING_ID);
+    }
     $emp = db()->fetchOne("SELECT * FROM employees WHERE id=? AND deleted_at IS NULL", [$id]);
-    if (!$emp) fail('Employee not found.');
+    if (!$emp) {
+        fail('Employee not found.');
+    }
 
     // Delete child records that have no ON DELETE CASCADE (would block employee delete otherwise)
     db()->execute("DELETE FROM payroll_records WHERE employee_id=?", [$id]);
@@ -222,7 +273,9 @@ if ($action === 'delete_employee') {
     foreach (['photo_path', 'passbook_photo_path', 'id_card_photo_path'] as $col) {
         if (!empty($emp[$col])) {
             $filePath = UPLOAD_PATH . $emp[$col];
-            if (is_file($filePath)) @unlink($filePath);
+            if (is_file($filePath)) {
+                @unlink($filePath);
+            }
         }
     }
 
@@ -235,11 +288,19 @@ if ($action === 'delete_employee') {
 // FILE UPLOAD
 // ============================================================
 if ($action === 'upload_file') {
-    if (empty($_FILES['file']['tmp_name'])) fail('No file uploaded.');
-    $type  = $_POST['type']        ?? 'photo';
+    if (empty($_FILES['file']['tmp_name'])) {
+        fail('No file uploaded.');
+    }
+    $type = $_POST['type'] ?? 'photo';
+    if (!in_array($type, ['photo', 'passbook', 'id_card'], true)) {
+        fail('Invalid file type.');
+    }
+    
     $empId = (int)($_POST['employee_id'] ?? 0);
     $result = uploadFile($_FILES['file'], $type);
-    if (!$result['success']) fail($result['message']);
+    if (!$result['success']) {
+        fail($result['message']);
+    }
     if ($empId) {
         $col = match($type) {
             'passbook' => 'passbook_photo_path',
@@ -248,7 +309,7 @@ if ($action === 'upload_file') {
         };
         db()->execute("UPDATE employees SET $col=? WHERE id=?", [$result['path'], $empId]);
     }
-     ok(['path' => $result['path'], 'url' => $result['url']], 'File uploaded.');
+    ok(['path' => $result['path'], 'url' => $result['url']], 'File uploaded.');
 }
 
 if ($action === 'list_uploads') {
@@ -258,18 +319,26 @@ if ($action === 'list_uploads') {
     $usedPaths = [];
     foreach (db()->fetchAll("SELECT photo_path, passbook_photo_path, id_card_photo_path FROM employees WHERE deleted_at IS NULL") as $row) {
         foreach (['photo_path', 'passbook_photo_path', 'id_card_photo_path'] as $col) {
-            if (!empty($row[$col])) $usedPaths[$row[$col]] = true;
+            if (!empty($row[$col])) {
+                $usedPaths[$row[$col]] = true;
+            }
         }
     }
 
     $files = [];
     foreach ($subDirs as $subDir) {
         $dir = UPLOAD_PATH . $subDir;
-        if (!is_dir($dir)) continue;
+        if (!is_dir($dir)) {
+            continue;
+        }
         foreach (scandir($dir) as $fname) {
-            if ($fname === '.' || $fname === '..' || $fname === '.gitkeep') continue;
+            if ($fname === '.' || $fname === '..' || $fname === '.gitkeep') {
+                continue;
+            }
             $full = $dir . '/' . $fname;
-            if (!is_file($full)) continue;
+            if (!is_file($full)) {
+                continue;
+            }
             $relPath = $subDir . '/' . $fname;
             $files[] = [
                 'path'     => $relPath,
@@ -287,12 +356,20 @@ if ($action === 'list_uploads') {
 
 if ($action === 'delete_upload') {
     $path = p('path', '');
-    if (!$path) fail('No file path provided.');
+    if (!$path) {
+        fail('No file path provided.');
+    }
     $base = realpath(UPLOAD_PATH);
     $real = realpath(UPLOAD_PATH . $path);
-    if (!$real || !$base || strpos($real, $base) !== 0) fail('Invalid file path.');
-    if (!is_file($real)) fail('File not found.');
-    if (!unlink($real)) fail('Failed to delete file.');
+    if (!$real || !$base || strpos($real, $base) !== 0) {
+        fail('Invalid file path.');
+    }
+    if (!is_file($real)) {
+        fail('File not found.');
+    }
+    if (!unlink($real)) {
+        fail('Failed to delete file.');
+    }
 
     db()->execute("UPDATE employees SET photo_path=NULL WHERE photo_path=?", [$path]);
     db()->execute("UPDATE employees SET passbook_photo_path=NULL WHERE passbook_photo_path=?", [$path]);
@@ -317,7 +394,10 @@ if ($action === 'get_attendance') {
                FROM attendance a   JOIN employees e ON a.employee_id = e.id
                WHERE a.attendance_date BETWEEN ? AND ?";
     $params = [$start, $end];
-    if ($empId) { $sql .= " AND a.employee_id=?"; $params[] = $empId; }
+    if ($empId) {
+        $sql .= " AND a.employee_id=?";
+        $params[] = $empId;
+    }
     $sql .= " ORDER BY a.employee_id, a.attendance_date";
     ok(db()->fetchAll($sql, $params));
 }
@@ -333,7 +413,9 @@ if ($action === 'save_attendance') {
 
     // MIN-04: verify employee is not soft-deleted
     $emp = db()->fetchOne("SELECT id FROM employees WHERE id=? AND deleted_at IS NULL", [$empId]);
-    if (!$emp) fail('Employee not found or has been deleted.');
+    if (!$emp) {
+        fail('Employee not found or has been deleted.');
+    }
 
     $checkIn  = p('check_in_time')  ?: null;
     $checkOut = p('check_out_time') ?: null;
@@ -344,7 +426,9 @@ if ($action === 'save_attendance') {
         $outSec = timeToSeconds($checkOut);
         if ($outSec !== null && $inSec !== null && $outSec <= $inSec) {
             [$h] = explode(':', $checkOut);
-            if ((int)$h >= 12) fail('Check-out time must be later than check-in time.');
+            if ((int)$h >= 12) {
+                fail('Check-out time must be later than check-in time.');
+            }
         }
     }
 
@@ -377,11 +461,12 @@ if ($action === 'save_attendance') {
         $otHours        = (float)p('overtime_hours', 0);
         // If manually overridden, respect the posted night hours (do NOT
         // silently recalculate from checkout — that was discarding edits).
-        $nightHrs = $isManualOverride
-            ? (float)p('night_shift_hours', 0)
-            : (($checkOut && in_array($attType, ['full_day','half_day']))
-                ? calculateNightAllowance($checkOut, $dow)
-                : 0.0);
+        $nightHrs = 0.0;
+        if ($isManualOverride) {
+            $nightHrs = (float)p('night_shift_hours', 0);
+        } elseif ($checkOut && in_array($attType, ['full_day','half_day'])) {
+            $nightHrs = calculateNightAllowance($checkOut, $dow);
+        }
     }
 
     // Non-productive types: zero everything
@@ -466,7 +551,9 @@ if ($action === 'preview_attendance') {
     $checkOut = p('check_out_time') ?: '';
     $date     = p('attendance_date') ?: date('Y-m-d');
     $attType  = p('attendance_type','full_day');
-    if (!$checkIn || !$checkOut) fail('check_in_time and check_out_time are required.');
+    if (!$checkIn || !$checkOut) {
+        fail('check_in_time and check_out_time are required.');
+    }
 
     $dow      = (int)date('N', strtotime($date));
     $settings = getSettings();
@@ -478,7 +565,9 @@ if ($action === 'preview_attendance') {
 
 if ($action === 'delete_attendance') {
     $id = (int)p('id',0);
-    if (!$id) fail('Missing id.');
+    if (!$id) {
+        fail(ERROR_MISSING_ID);
+    }
 
     // MAJ-04: write final audit log before deleting
     $existing = db()->fetchOne("SELECT * FROM attendance WHERE id=?", [$id]);
@@ -519,10 +608,14 @@ if ($action === 'save_sunday_bonus_override') {
     $isoYr  = (int)p('iso_year');
     $isoWk  = (int)p('iso_week');
     $hours  = (float)p('override_hours');
-    if ($hours < 0 || $hours > 16) fail('override_hours must be between 0 and 16.');
+    if ($hours < 0 || $hours > 16) {
+        fail('override_hours must be between 0 and 16.');
+    }
 
     $emp = db()->fetchOne("SELECT id FROM employees WHERE id=? AND deleted_at IS NULL", [$empId]);
-    if (!$emp) fail('Employee not found or has been deleted.');
+    if (!$emp) {
+        fail('Employee not found or has been deleted.');
+    }
 
     $adminId = $_SESSION['admin_id'] ?? null;
     $remarks = p('remarks') ?: 'Manual Sunday Bonus override';
@@ -614,7 +707,9 @@ if ($action === 'get_advances') {
 if ($action === 'save_advance') {
     require_fields(['employee_id','amount','advance_date']);
     $amt = (float)p('amount');
-    if ($amt <= 0) fail('Advance amount must be greater than zero.');
+    if ($amt <= 0) {
+        fail('Advance amount must be greater than zero.');
+    }
     $fields = [
         'employee_id'  => (int)p('employee_id'),
         'advance_date' => p('advance_date'),
@@ -630,7 +725,9 @@ if ($action === 'save_advance') {
 
 if ($action === 'delete_advance') {
     $id = (int)p('id',0);
-    if (!$id) fail('Missing id.');
+    if (!$id) {
+        fail('Missing id.');
+    }
     db()->execute("DELETE FROM salary_advances WHERE id=? AND status='pending'", [$id]);
     logActivity('DELETE_ADVANCE','salary_advances',$id,'Deleted');
     ok(null, 'Advance deleted.');
@@ -639,7 +736,9 @@ if ($action === 'delete_advance') {
 if ($action === 'save_due_salary') {
     require_fields(['employee_id','amount']);
     $amt = (float)p('amount');
-    if ($amt <= 0) fail('Due salary amount must be greater than zero.');
+    if ($amt <= 0) {
+        fail('Due salary amount must be greater than zero.');
+    }
     $fields = [
         'employee_id' => (int)p('employee_id'),
         'amount'      => $amt,
@@ -695,7 +794,9 @@ if ($action === 'generate_payroll') {
 
 if ($action === 'approve_payroll') {
     $periodId = (int)p('period_id',0);
-    if (!$periodId) fail('Missing period_id.');
+    if (!$periodId) {
+        fail('Missing period_id.');
+    }
     db()->execute(
         "UPDATE payroll_periods SET status='approved',approved_by=?,approved_at=NOW() WHERE id=?",
         [$_SESSION['admin_id'], $periodId]
@@ -710,8 +811,12 @@ if ($action === 'approve_all_payroll') {
     $month = (int)p('month', date('n'));
     $period = db()->fetchOne(
         "SELECT id,status FROM payroll_periods WHERE period_year=? AND period_month=?",[$year,$month]);
-    if (!$period) fail('No payroll period found for this month.');
-    if ($period['status'] === 'paid') fail('Payroll already marked as paid.');
+    if (!$period) {
+        fail('No payroll period found for this month.');
+    }
+    if ($period['status'] === 'paid') {
+        fail('Payroll already marked as paid.');
+    }
     db()->execute(
         "UPDATE payroll_periods SET status='approved',approved_by=?,approved_at=NOW() WHERE id=?",
         [$_SESSION['admin_id'], $period['id']]
@@ -723,10 +828,16 @@ if ($action === 'approve_all_payroll') {
 
 if ($action === 'mark_payroll_paid') {
     $periodId = (int)p('period_id',0);
-    if (!$periodId) fail('Missing period_id.');
+    if (!$periodId) {
+        fail('Missing period_id.');
+    }
     $period = db()->fetchOne("SELECT * FROM payroll_periods WHERE id=?", [$periodId]);
-    if (!$period) fail('Period not found.');
-    if ($period['status'] === 'paid') fail('Already marked as paid.');
+    if (!$period) {
+        fail('Period not found.');
+    }
+    if ($period['status'] === 'paid') {
+        fail('Already marked as paid.');
+    }
 
     db()->execute("UPDATE payroll_periods SET status='paid' WHERE id=?", [$periodId]);
     db()->execute("UPDATE payroll_records SET status='paid',payment_date=CURDATE() WHERE payroll_period_id=?",[$periodId]);
@@ -743,7 +854,9 @@ if ($action === 'mark_payroll_paid') {
             );
             $remaining = (float)$rec['advance_deduction'];
             foreach ($pending as $adv) {
-                if ($remaining <= 0) break;
+                if ($remaining <= 0) {
+                    break;
+                }
                 db()->execute(
                     "UPDATE salary_advances SET status='deducted',deducted_date=CURDATE(),payroll_record_id=? WHERE id=?",
                     [$periodId, $adv['id']]
@@ -879,8 +992,11 @@ if ($action === 'save_settings') {
         'updated_at'          => date('Y-m-d H:i:s'),
     ];
     $existing = db()->fetchOne("SELECT id FROM company_settings LIMIT 1");
-    if ($existing) db()->update('company_settings', $fields, 'id=?', [$existing['id']]);
-    else           db()->insert('company_settings', $fields);
+    if ($existing) {
+        db()->update('company_settings', $fields, 'id=?', [$existing['id']]);
+    } else {
+        db()->insert('company_settings', $fields);
+    }
     logActivity('UPDATE_SETTINGS','company_settings',1,'Updated settings');
     ok(null, 'Settings saved.');
 }
@@ -920,7 +1036,9 @@ if ($action === 'save_holiday') {
 
 if ($action === 'generate_holidays') {
     $year = (int)p('year', date('Y'));
-    if ($year < 2000 || $year > 2100) fail('Invalid year.');
+    if ($year < 2000 || $year > 2100) {
+        fail('Invalid year.');
+    }
 
     $fixed = [
         ['01-01', "New Year's Day", '신정'],
@@ -1023,7 +1141,10 @@ if ($action === 'get_due_salaries') {
 }
 
 if ($action === 'cancel_due_salary') {
-    $id = (int)p('id',0); if (!$id) fail('Missing id.');
+    $id = (int)p('id',0);
+    if (!$id) {
+        fail(ERROR_MISSING_ID);
+    }
     db()->execute("UPDATE due_salaries SET status='cancelled' WHERE id=? AND status='pending'", [$id]);
     logActivity('CANCEL_DUE_SALARY','due_salaries',$id,'Cancelled');
     ok(null, 'Due salary cancelled.');
@@ -1031,7 +1152,9 @@ if ($action === 'cancel_due_salary') {
 
 if ($action === 'process_all_due_salaries') {
     $pending = db()->fetchAll("SELECT id FROM due_salaries WHERE status='pending'");
-    if (empty($pending)) fail('No pending due salaries to process.');
+    if (empty($pending)) {
+        fail('No pending due salaries to process.');
+    }
 
     $year  = (int)date('Y');
     $month = (int)date('n');
@@ -1056,12 +1179,17 @@ if ($action === 'process_all_due_salaries') {
 // ============================================================
 if ($action === 'get_paysheet') {
     $empId = (int)g('employee_id',0); $year=(int)g('year',date('Y')); $month=(int)g('month',date('n'));
-    if (!$empId) fail('Missing employee_id.');
+    if (!$empId) {
+        fail('Missing employee_id.');
+    }
 
     // Always recalculate live from attendance so values are always accurate
     $engine = new PayrollEngine();
-    try { $calc = $engine->calculateEmployeePayroll($empId, $year, $month); }
-    catch (\Exception $e) { fail($e->getMessage()); }
+    try {
+        $calc = $engine->calculateEmployeePayroll($empId, $year, $month);
+    } catch (\Exception $e) {
+        fail($e->getMessage());
+    }
 
     $attendance = db()->fetchAll(
         "SELECT a.*, k.holiday_name_en as holiday_name FROM attendance a
@@ -1113,7 +1241,9 @@ if ($action === 'get_paysheet') {
 
 if ($action === 'calculate_paysheet') {
     $empId=(int)g('employee_id',0); $year=(int)g('year',date('Y')); $month=(int)g('month',date('n'));
-    if (!$empId) fail('Missing employee_id.');
+    if (!$empId) {
+        fail('Missing employee_id.');
+    }
     $engine = new PayrollEngine();
     try { $calc = $engine->calculateEmployeePayroll($empId,$year,$month); }
     catch (\Exception $e) { fail($e->getMessage()); }
@@ -1173,7 +1303,9 @@ if ($action === 'export_paysheet_pdf') {
     
 
     $empId=(int)g('employee_id',0); $year=(int)g('year',date('Y')); $month=(int)g('month',date('n'));
-    if (!$empId) fail('Missing employee_id.');
+    if (!$empId) {
+        fail('Missing employee_id.');
+    }
 
     // Always recalculate live — ensures hours and sunday_bonus_weeks are always fresh
     $engine = new PayrollEngine();
@@ -1254,13 +1386,22 @@ if ($action === 'export_paysheet_pdf') {
             $dow = date('N',mktime(0,0,0,$month,$d,$year));
             $att = $attByDay[$d]??null;
             $val = $att?(float)$att[$row['key']]:0;
-           if ($val>0)                          { $tot+=$val; $calRows.='<td class="hv" style="color:'.$row['color'].'">'.$val.'</td>'; }
-            elseif ($row['key']==='work_hours'&&isset($holidayMap[$d])&&$val==0) $calRows.='<td class="hd" title="'.htmlspecialchars($holidayMap[$d]).'">HD</td>';
-            elseif ($dow==7)                     $calRows.='<td class="sc"></td>';
-            elseif ($dow==6)                     $calRows.='<td class="sc"></td>';
-            elseif ($att&&$att['attendance_type']==='absent') $calRows.='<td class="ac">A</td>';
-            elseif ($att&&strpos($att['attendance_type'],'leave')!==false) $calRows.='<td class="lc">L</td>';
-            else                                 $calRows.='<td></td>';
+           if ($val>0) {
+               $tot += $val;
+               $calRows .= '<td class="hv" style="color:'.$row['color'].'">'.$val.'</td>';
+           } elseif ($row['key'] === 'work_hours' && isset($holidayMap[$d]) && $val == 0) {
+               $calRows .= '<td class="hd" title="'.htmlspecialchars($holidayMap[$d]).'">HD</td>';
+           } elseif ($dow == 7) {
+               $calRows .= '<td class="sc"></td>';
+           } elseif ($dow == 6) {
+               $calRows .= '<td class="sc"></td>';
+           } elseif ($att && $att['attendance_type'] === 'absent') {
+               $calRows .= '<td class="ac">A</td>';
+           } elseif ($att && strpos($att['attendance_type'], 'leave') !== false) {
+               $calRows .= '<td class="lc">L</td>';
+           } else {
+               $calRows .= '<td></td>';
+           }
         }
         $calRows .= '<td class="tc">'.$tot.'</td></tr>';
     }
@@ -1385,7 +1526,7 @@ td{border:1px solid #ddd;padding:4px 3px;text-align:center}
 // ============================================================
 if ($action === 'export_paysheet_csv') {
     $empId=(int)g('employee_id',0); $year=(int)g('year',date('Y')); $month=(int)g('month',date('n'));
-    if (!$empId) fail('Missing employee_id.');
+    if (!$empId) { fail('Missing employee_id.'); }
 
     $engine = new PayrollEngine();
     try { $calc = $engine->calculateEmployeePayroll($empId, $year, $month); }
@@ -1396,7 +1537,7 @@ if ($action === 'export_paysheet_csv') {
 
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="paysheet_'.preg_replace('/\s+/','_',$emp['full_name']).'_'.$monthLabel.'.csv"');
-    $out = fopen('php://output','w');
+    $out = fopen(PHP_OUTPUT_STREAM,'w');
     fprintf($out, chr(0xEF).chr(0xBB).chr(0xBF));
 
     // Employee info block
@@ -1441,7 +1582,7 @@ if ($action === 'export_employees') {
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="employees_'.date('Y-m-d').'.csv"');
     $employees = db()->fetchAll("SELECT * FROM employees ORDER BY full_name");
-    $out = fopen('php://output','w');
+    $out = fopen(PHP_OUTPUT_STREAM,'w');
     fprintf($out, chr(0xEF).chr(0xBB).chr(0xBF));
     fputcsv($out,['ID','Employee ID','Full Name','Type','Phone','Email','Country','Join Date','Bank','Account No','Hourly Rate','Tax Rate','Status']);
     foreach ($employees as $e) {
@@ -1456,6 +1597,8 @@ if ($action === 'export_attendance') {
     $year=(int)g('year',date('Y')); $month=(int)g('month',date('n'));
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="attendance_'.$year.'-'.str_pad($month,2,'0',STR_PAD_LEFT).'.csv"');
+    $out = fopen(PHP_OUTPUT_STREAM,'w');
+    fprintf($out, chr(0xEF).chr(0xBB).chr(0xBF));
     $rows = db()->fetchAll(
         "SELECT a.attendance_date,e.full_name,e.employee_id AS emp_code,a.attendance_type,
                 a.check_in_time,a.check_out_time,a.total_duration_hours,a.lunch_deduction_hours,
@@ -1467,11 +1610,13 @@ if ($action === 'export_attendance') {
     );
     $out=fopen('php://output','w'); fprintf($out,chr(0xEF).chr(0xBB).chr(0xBF));
     fputcsv($out,['Date','Employee','ID','Type','Check-In','Check-Out','Duration','Lunch','Basic Hrs','OT Hrs','Night Hrs','Holiday Hrs','Manual Override','Remarks']);
-    foreach ($rows as $r) fputcsv($out,[$r['attendance_date'],$r['full_name'],$r['emp_code'],
-        $r['attendance_type'],$r['check_in_time'],$r['check_out_time'],
-        $r['total_duration_hours'],$r['lunch_deduction_hours'],
-        $r['work_hours'],$r['overtime_hours'],$r['night_shift_hours'],$r['holiday_hours'],
-        $r['is_manual_override']?'Yes':'No',$r['remarks']]);
+    foreach ($rows as $r) {
+        fputcsv($out,[$r['attendance_date'],$r['full_name'],$r['emp_code'],
+            $r['attendance_type'],$r['check_in_time'],$r['check_out_time'],
+            $r['total_duration_hours'],$r['lunch_deduction_hours'],
+            $r['work_hours'],$r['overtime_hours'],$r['night_shift_hours'],$r['holiday_hours'],
+            $r['is_manual_override']?'Yes':'No',$r['remarks']]);
+    }
     fclose($out); exit;
 }
 
@@ -1495,13 +1640,15 @@ if ($action === 'export_payroll') {
     fputcsv($out,['Name','ID','Type','Bank','Work Hrs','OT Hrs','Night Hrs','Holiday Hrs',
         'Bonus Weeks','Basic','OT Pay','Night Allow','Holiday Pay','Sun Bonus','Due Added','Gross',
         'Tax%','Tax Amt','Advance','Unpaid Ded','Total Ded','Net Salary','Status']);
-    foreach ($rows as $r) fputcsv($out,[$r['full_name'],$r['emp_code'],$r['employee_type'],$r['bank_name'],
-        $r['total_work_hours'],$r['overtime_hours'],$r['night_shift_hours'],$r['holiday_hours'],
-        $r['sunday_bonus_weeks'],
-        $r['basic_salary'],$r['overtime_pay'],$r['night_allowance'],$r['holiday_pay'],
-        $r['sunday_bonus'],$r['due_salary_added'],$r['gross_salary'],
-        $r['tax_rate'],$r['tax_amount'],$r['advance_deduction'],$r['unpaid_leave_deduction'],
-        $r['total_deductions'],$r['net_salary'],$r['status']]);
+    foreach ($rows as $r) {
+        fputcsv($out,[$r['full_name'],$r['emp_code'],$r['employee_type'],$r['bank_name'],
+            $r['total_work_hours'],$r['overtime_hours'],$r['night_shift_hours'],$r['holiday_hours'],
+            $r['sunday_bonus_weeks'],
+            $r['basic_salary'],$r['overtime_pay'],$r['night_allowance'],$r['holiday_pay'],
+            $r['sunday_bonus'],$r['due_salary_added'],$r['gross_salary'],
+            $r['tax_rate'],$r['tax_amount'],$r['advance_deduction'],$r['unpaid_leave_deduction'],
+            $r['total_deductions'],$r['net_salary'],$r['status']]);
+    }
     fclose($out); exit;
 }
 

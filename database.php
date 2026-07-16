@@ -61,6 +61,16 @@ class Database {
         return $this->pdo;
     }
 
+    /**
+     * Validates a SQL identifier (table or column name) to prevent injection.
+     * Only allows letters, numbers, and underscores.
+     */
+    private function validateIdentifier(string $identifier, string $type = 'identifier'): void {
+        if (!preg_match('/^[A-Za-z_]\w*$/', $identifier)) {
+            throw new InvalidArgumentException("Invalid {$type} name: {$identifier}");
+        }
+    }
+
     public function query(string $sql, array $params = []): PDOStatement {
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($params);
@@ -76,6 +86,10 @@ class Database {
     }
 
     public function insert(string $table, array $data): int {
+        $this->validateIdentifier($table, 'table');
+        foreach (array_keys($data) as $col) {
+            $this->validateIdentifier($col, 'column');
+        }
         $cols = implode(', ', array_keys($data));
         $placeholders = implode(', ', array_fill(0, count($data), '?'));
         $sql = "INSERT INTO {$table} ({$cols}) VALUES ({$placeholders})";
@@ -84,6 +98,10 @@ class Database {
     }
 
     public function update(string $table, array $data, string $where, array $whereParams = []): int {
+        $this->validateIdentifier($table, 'table');
+        foreach (array_keys($data) as $col) {
+            $this->validateIdentifier($col, 'column');
+        }
         $sets = implode(' = ?, ', array_keys($data)) . ' = ?';
         $sql = "UPDATE {$table} SET {$sets} WHERE {$where}";
         $params = array_merge(array_values($data), $whereParams);

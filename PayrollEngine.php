@@ -51,7 +51,9 @@ class PayrollEngine {
             "SELECT * FROM employees WHERE id = ? AND deleted_at IS NULL",
             [$employeeId]
         );
-        if (!$employee) throw new \Exception("Employee not found");
+        if (!$employee) {
+            throw new \Exception("Employee not found");
+        }
 
         // Decrypt sensitive fields for display (never stored in memory longer than needed)
         $employee['account_number']          = decryptField($employee['account_number_enc'] ?? null);
@@ -66,21 +68,7 @@ class PayrollEngine {
             $periodStart = $employee['join_date'];
         }
 
-        // All attendance rows for the period
-        $attendance = db()->fetchAll(
-            "SELECT a.*, k.id as is_pub_holiday
-             FROM attendance a
-             LEFT JOIN korean_public_holidays k ON a.attendance_date = k.holiday_date
-             WHERE a.employee_id = ? AND a.attendance_date BETWEEN ? AND ?
-             ORDER BY a.attendance_date",
-            [$employeeId, $periodStart, $periodEnd]
-        );
-
-        if (empty($attendance)) {
-            throw new \Exception(
-                "No attendance records found for {$employee['full_name']} in $periodStart – $periodEnd"
-            );
-        }
+        $attendance = $this->fetchAttendanceOrFail($employeeId, $periodStart, $periodEnd, $employee['full_name']);
 
         $hourlyRate   = (float)$employee['hourly_rate'];
         $taxRate      = (float)$employee['tax_rate'];
@@ -88,145 +76,18 @@ class PayrollEngine {
         $holidayMult  = (float)($this->settings['holiday_multiplier']  ?? 2.0);
         $stdHours     = (float)($this->settings['standard_work_hours'] ?? 8.0);
 
-        // ── Aggregation ──────────────────────────────────────
-        $totalWorkHours   = 0.0;
-        $totalOvertimeHrs = 0.0;
-        $totalNightHrs    = 0.0;
-        $totalHolidayHrs  = 0.0;
-        $totalWorkDays    = 0;
-        $absentDays       = 0;
-        $unpaidLeaveDays  = 0;
+        $summary = $this->buildAttendanceSummary($attendance);
 
-        // Index records by ISO week number for per-week Sunday Bonus
-        // Structure: [ isoWeek => ['mon'=>bool, 'tue'=>bool, …, 'fri'=>bool, 'forfeit'=>bool] ]
-        $weekData = [];
-
-        foreach ($attendance as $att) {
-            $ts  = strtotime($att['attendance_date']);
-            $dow = (int)date('N', $ts); // 1=Mon…7=Sun
-            $isWeekday = $dow >= 1 && $dow <= 5;
-            $isoWeek   = (int)date('W', $ts);
-
-            // Ensure week slot exists
-            if ($isWeekday && !isset($weekData[$isoWeek])) {
-                $weekData[$isoWeek] = ['forfeit' => false, 'days' => []];
-            }
-
-           switch ($att['attendance_type']) {
-                case 'half_day':
-                    // Half day still counts as attended for Sunday Bonus purposes
-                    // (matches index.html's computeBonusWeeks), hours still count.
-                    if ($isWeekday) {
-                        if (!isset($weekData[$isoWeek])) $weekData[$isoWeek] = ['forfeit' => false, 'days' => []];
-                        $weekData[$isoWeek]['days'][$dow] = true;
-                    }
-                    // fall through to accumulate hours
-                case 'full_day':
-                    // Hours are already correctly split by save_attendance
-                    // (smart calc or manual override). Weekend hours are
-                    // stored as overtime_hours with work_hours = 0.
-                    $totalWorkHours   += (float)$att['work_hours'];
-                    $totalOvertimeHrs += (float)$att['overtime_hours'];
-                    $totalNightHrs    += (float)$att['night_shift_hours'];
-                    $totalHolidayHrs  += (float)$att['holiday_hours'];
-                    $totalWorkDays++;
-
-                    // A full_day counts as attended for Sunday Bonus purposes if any
-                    // hours were logged — including holiday-worked days where all hours
-                    // land in overtime_hours instead of work_hours (weekend/holiday rule).
-                    // A full_day record with zero hours in both (e.g. edited/cleared
-                    // via the calendar) must NOT still count as attended.
-                    $totalHrsLogged = (float)$att['work_hours'] + (float)$att['overtime_hours'];
-                    if ($att['attendance_type'] === 'full_day' && $isWeekday && $totalHrsLogged > 0) {
-                        $weekData[$isoWeek]['days'][$dow] = true;
-                    } elseif ($att['attendance_type'] === 'full_day' && $isWeekday) {
-                        if (!isset($weekData[$isoWeek])) $weekData[$isoWeek] = ['forfeit' => false, 'days' => []];
-                        $weekData[$isoWeek]['forfeit'] = true;
-                    }
-                    break;
-
-                case 'absent':
-                    $absentDays++;
-                    if ($isWeekday) {
-                        if (!isset($weekData[$isoWeek])) $weekData[$isoWeek] = ['forfeit' => false, 'days' => []];
-                        $weekData[$isoWeek]['forfeit'] = true; // forfeit this week's bonus
-                    }
-                    break;
-
-                case 'paid_leave':
-                    // Paid leave counts as "attended" for Sunday Bonus purposes
-                    if ($isWeekday) {
-                        if (!isset($weekData[$isoWeek])) $weekData[$isoWeek] = ['forfeit' => false, 'days' => []];
-                        $weekData[$isoWeek]['days'][$dow] = true;
-                    }
-                    break;
-
-                case 'unpaid_leave':
-                    $unpaidLeaveDays++;
-                    if ($isWeekday) {
-                        if (!isset($weekData[$isoWeek])) $weekData[$isoWeek] = ['forfeit' => false, 'days' => []];
-                        $weekData[$isoWeek]['forfeit'] = true; // forfeit this week's bonus
-                    }
-                    break;
-            }
-        }
-
-        // ── Weekly Sunday Bonus ───────────────────────────────
-        // Rule: bonus only awarded if ALL 5 weekdays (Mon–Fri) fall
-        // inside this month's period AND employee attended all 5.
-        // Partial weeks (e.g. last week has only Mon–Wed in the month)
-        // are SKIPPED — bonus carries to next month when full week completes.
-        $overrideRows = db()->fetchAll(
-            "SELECT iso_year, iso_week, override_hours FROM sunday_bonus_overrides WHERE employee_id=?",
-            [$employeeId]
-        );
-        $overrideMap = [];
-        foreach ($overrideRows as $o) {
-            $overrideMap[$o['iso_year'] . '-' . $o['iso_week']] = (float)$o['override_hours'];
-        }
-
-        $periodStartTs = strtotime($periodStart);
-        $periodEndTs   = strtotime($periodEnd);
-
-        $qualifyingWeeks       = 0;
-        $sundayBonusHoursTotal = 0.0;
-
-        for ($mondayTs = $periodStartTs; $mondayTs <= $periodEndTs; $mondayTs += 86400) {
-            if ((int)date('N', $mondayTs) !== 1) continue; // only Mondays
-
-            $isoWeek  = (int)date('W', $mondayTs);
-            $isoYear  = (int)date('o', $mondayTs);
-            $fridayTs = $mondayTs + 4 * 86400;
-            $sundayTs = $mondayTs + 6 * 86400;
-
-            if ($fridayTs > $periodEndTs) continue;
-            if ($sundayTs > $periodEndTs) continue;
-
-            $overrideKey = $isoYear . '-' . $isoWeek;
-            if (array_key_exists($overrideKey, $overrideMap)) {
-                $weekHours = $overrideMap[$overrideKey];
-            } else {
-                $wd = $weekData[$isoWeek] ?? null;
-                $weekHours = 0.0;
-                if ($wd && !$wd['forfeit']) {
-                    $allAttended = true;
-                    for ($dow = 1; $dow <= 5; $dow++) {
-                        if (empty($wd['days'][$dow])) { $allAttended = false; break; }
-                    }
-                    if ($allAttended) $weekHours = 8.0;
-                }
-            }
-
-            if ($weekHours > 0) $qualifyingWeeks++;
-            $sundayBonusHoursTotal += $weekHours;
-        }
-        $sundayBonus = $sundayBonusHoursTotal * $hourlyRate;
+        $sundayBonusResult = $this->calculateSundayBonus($employeeId, $periodStart, $periodEnd, $summary['week_data']);
+        $qualifyingWeeks       = $sundayBonusResult['qualifying_weeks'];
+        $sundayBonusHoursTotal = $sundayBonusResult['bonus_hours'];
+        $sundayBonus           = $sundayBonusHoursTotal * $hourlyRate;
 
         // ── Earnings ─────────────────────────────────────────
-        $basicSalary    = $totalWorkHours   * $hourlyRate;
-        $overtimePay    = $totalOvertimeHrs * $hourlyRate * $overtimeMult;
-        $nightAllowance = $totalNightHrs    * $hourlyRate;
-        $holidayPay     = $totalHolidayHrs  * $hourlyRate * $holidayMult;
+        $basicSalary    = $summary['total_work_hours']   * $hourlyRate;
+        $overtimePay    = $summary['total_overtime_hours'] * $hourlyRate * $overtimeMult;
+        $nightAllowance = $summary['total_night_hours']    * $hourlyRate;
+        $holidayPay     = $summary['total_holiday_hours']  * $hourlyRate * $holidayMult;
         $dueSalaryAdded = $this->getPendingDueSalary($employeeId);
 
         $taxableGross = $basicSalary + $overtimePay + $nightAllowance + $holidayPay + $sundayBonus;
@@ -235,7 +96,7 @@ class PayrollEngine {
         // ── Deductions ───────────────────────────────────────
         $taxAmount            = $taxableGross * ($taxRate / 100);
         $advanceDeduction     = $this->getPendingAdvances($employeeId);
-        $unpaidLeaveDeduction = $unpaidLeaveDays * $stdHours * $hourlyRate;
+        $unpaidLeaveDeduction = $summary['unpaid_leave_days'] * $stdHours * $hourlyRate;
         $totalDeductions      = $taxAmount + $advanceDeduction + $unpaidLeaveDeduction;
 
         // ── Net ───────────────────────────────────────────────
@@ -256,13 +117,13 @@ class PayrollEngine {
             'tax_rate'               => $taxRate,
 
             // Attendance Summary
-            'total_work_days'        => $totalWorkDays,
-            'total_work_hours'       => round($totalWorkHours, 2),
-            'overtime_hours'         => round($totalOvertimeHrs, 2),
-            'night_shift_hours'      => round($totalNightHrs, 2),
-            'holiday_hours'          => round($totalHolidayHrs, 2),
-            'absent_days'            => $absentDays,
-            'unpaid_leave_days'      => $unpaidLeaveDays,
+            'total_work_days'        => $summary['total_work_days'],
+            'total_work_hours'       => round($summary['total_work_hours'], 2),
+            'overtime_hours'         => round($summary['total_overtime_hours'], 2),
+            'night_shift_hours'      => round($summary['total_night_hours'], 2),
+            'holiday_hours'          => round($summary['total_holiday_hours'], 2),
+            'absent_days'            => $summary['absent_days'],
+            'unpaid_leave_days'      => $summary['unpaid_leave_days'],
             'sunday_bonus_weeks'     => $qualifyingWeeks,
             'sunday_bonus_hours'     => round($sundayBonusHoursTotal, 2),
 
@@ -288,6 +149,217 @@ class PayrollEngine {
             // Detail
             'attendance_records'     => $attendance,
         ];
+    }
+
+    // --------------------------------------------------------
+    // Fetch attendance rows for a period, or throw if none found
+    // --------------------------------------------------------
+    private function fetchAttendanceOrFail(int $employeeId, string $periodStart, string $periodEnd, string $employeeName): array {
+        $attendance = db()->fetchAll(
+            "SELECT a.*, k.id as is_pub_holiday
+             FROM attendance a
+             LEFT JOIN korean_public_holidays k ON a.attendance_date = k.holiday_date
+             WHERE a.employee_id = ? AND a.attendance_date BETWEEN ? AND ?
+             ORDER BY a.attendance_date",
+            [$employeeId, $periodStart, $periodEnd]
+        );
+
+        if (empty($attendance)) {
+            throw new \Exception(
+                "No attendance records found for {$employeeName} in $periodStart – $periodEnd"
+            );
+        }
+
+        return $attendance;
+    }
+
+    // --------------------------------------------------------
+    // Walk attendance rows, aggregate hours/days, and build
+    // per-ISO-week attendance data used for Sunday Bonus calc.
+    // --------------------------------------------------------
+    private function buildAttendanceSummary(array $attendance): array {
+        $totalWorkHours   = 0.0;
+        $totalOvertimeHrs = 0.0;
+        $totalNightHrs    = 0.0;
+        $totalHolidayHrs  = 0.0;
+        $totalWorkDays    = 0;
+        $absentDays       = 0;
+        $unpaidLeaveDays  = 0;
+
+        // Index records by ISO week number for per-week Sunday Bonus
+        // Structure: [ isoWeek => ['forfeit'=>bool, 'days'=>[dow=>bool]] ]
+        $weekData = [];
+
+        foreach ($attendance as $att) {
+            $ts  = strtotime($att['attendance_date']);
+            $dow = (int)date('N', $ts); // 1=Mon…7=Sun
+            $isWeekday = $dow >= 1 && $dow <= 5;
+            $isoWeek   = (int)date('W', $ts);
+
+            // Ensure week slot exists
+            if ($isWeekday && !isset($weekData[$isoWeek])) {
+                $weekData[$isoWeek] = ['forfeit' => false, 'days' => []];
+            }
+
+            switch ($att['attendance_type']) {
+                case 'half_day':
+                    // Half day still counts as attended for Sunday Bonus purposes
+                    // (matches index.html's computeBonusWeeks), hours still count.
+                    if ($isWeekday) {
+                        if (!isset($weekData[$isoWeek])) {
+                            $weekData[$isoWeek] = ['forfeit' => false, 'days' => []];
+                        }
+                        $weekData[$isoWeek]['days'][$dow] = true;
+                    }
+                    // fall through to accumulate hours
+                case 'full_day':
+                    // Hours are already correctly split by save_attendance
+                    // (smart calc or manual override). Weekend hours are
+                    // stored as overtime_hours with work_hours = 0.
+                    $totalWorkHours   += (float)$att['work_hours'];
+                    $totalOvertimeHrs += (float)$att['overtime_hours'];
+                    $totalNightHrs    += (float)$att['night_shift_hours'];
+                    $totalHolidayHrs  += (float)$att['holiday_hours'];
+                    $totalWorkDays++;
+
+                    // A full_day counts as attended for Sunday Bonus purposes if any
+                    // hours were logged — including holiday-worked days where all hours
+                    // land in overtime_hours instead of work_hours (weekend/holiday rule).
+                    // A full_day record with zero hours in both (e.g. edited/cleared
+                    // via the calendar) must NOT still count as attended.
+                    $totalHrsLogged = (float)$att['work_hours'] + (float)$att['overtime_hours'];
+                    if ($att['attendance_type'] === 'full_day' && $isWeekday && $totalHrsLogged > 0) {
+                        $weekData[$isoWeek]['days'][$dow] = true;
+                    } elseif ($att['attendance_type'] === 'full_day' && $isWeekday) {
+                        if (!isset($weekData[$isoWeek])) {
+                            $weekData[$isoWeek] = ['forfeit' => false, 'days' => []];
+                        }
+                        $weekData[$isoWeek]['forfeit'] = true;
+                    }
+                    break;
+
+                case 'absent':
+                    $absentDays++;
+                    if ($isWeekday) {
+                        if (!isset($weekData[$isoWeek])) {
+                            $weekData[$isoWeek] = ['forfeit' => false, 'days' => []];
+                        }
+                        $weekData[$isoWeek]['forfeit'] = true; // forfeit this week's bonus
+                    }
+                    break;
+
+                case 'paid_leave':
+                    // Paid leave counts as "attended" for Sunday Bonus purposes
+                    if ($isWeekday) {
+                        if (!isset($weekData[$isoWeek])) {
+                            $weekData[$isoWeek] = ['forfeit' => false, 'days' => []];
+                        }
+                        $weekData[$isoWeek]['days'][$dow] = true;
+                    }
+                    break;
+
+                case 'unpaid_leave':
+                    $unpaidLeaveDays++;
+                    if ($isWeekday) {
+                        if (!isset($weekData[$isoWeek])) {
+                            $weekData[$isoWeek] = ['forfeit' => false, 'days' => []];
+                        }
+                        $weekData[$isoWeek]['forfeit'] = true; // forfeit this week's bonus
+                    }
+                    break;
+
+                default:
+                    break;
+            }
+        }
+
+        return [
+            'week_data'             => $weekData,
+            'total_work_hours'      => $totalWorkHours,
+            'total_overtime_hours'  => $totalOvertimeHrs,
+            'total_night_hours'     => $totalNightHrs,
+            'total_holiday_hours'   => $totalHolidayHrs,
+            'total_work_days'       => $totalWorkDays,
+            'absent_days'           => $absentDays,
+            'unpaid_leave_days'     => $unpaidLeaveDays,
+        ];
+    }
+
+    // --------------------------------------------------------
+    // Weekly Sunday Bonus
+    // Rule: bonus only awarded if ALL 5 weekdays (Mon–Fri) fall
+    // inside this month's period AND employee attended all 5.
+    // Partial weeks (e.g. last week has only Mon–Wed in the month)
+    // are SKIPPED — bonus carries to next month when full week completes.
+    // --------------------------------------------------------
+    private function calculateSundayBonus(int $employeeId, string $periodStart, string $periodEnd, array $weekData): array {
+        $overrideRows = db()->fetchAll(
+            "SELECT iso_year, iso_week, override_hours FROM sunday_bonus_overrides WHERE employee_id=?",
+            [$employeeId]
+        );
+        $overrideMap = [];
+        foreach ($overrideRows as $o) {
+            $overrideMap[$o['iso_year'] . '-' . $o['iso_week']] = (float)$o['override_hours'];
+        }
+
+        $periodStartTs = strtotime($periodStart);
+        $periodEndTs   = strtotime($periodEnd);
+
+        $qualifyingWeeks       = 0;
+        $sundayBonusHoursTotal = 0.0;
+
+        for ($mondayTs = $periodStartTs; $mondayTs <= $periodEndTs; $mondayTs += 86400) {
+            if ((int)date('N', $mondayTs) !== 1) {
+                continue; // only Mondays
+            }
+
+            $isoWeek  = (int)date('W', $mondayTs);
+            $isoYear  = (int)date('o', $mondayTs);
+            $fridayTs = $mondayTs + 4 * 86400;
+            $sundayTs = $mondayTs + 6 * 86400;
+
+            if ($fridayTs > $periodEndTs) {
+                continue;
+            }
+            if ($sundayTs > $periodEndTs) {
+                continue;
+            }
+
+            $overrideKey = $isoYear . '-' . $isoWeek;
+            $weekHours = $this->resolveWeekBonusHours($overrideKey, $overrideMap, $weekData[$isoWeek] ?? null);
+
+            if ($weekHours > 0) {
+                $qualifyingWeeks++;
+            }
+            $sundayBonusHoursTotal += $weekHours;
+        }
+
+        return [
+            'qualifying_weeks' => $qualifyingWeeks,
+            'bonus_hours'      => $sundayBonusHoursTotal,
+        ];
+    }
+
+    // --------------------------------------------------------
+    // Resolve a single ISO week's Sunday Bonus hours: override
+    // takes priority, otherwise check full Mon–Fri attendance.
+    // --------------------------------------------------------
+    private function resolveWeekBonusHours(string $overrideKey, array $overrideMap, ?array $wd): float {
+        if (array_key_exists($overrideKey, $overrideMap)) {
+            return $overrideMap[$overrideKey];
+        }
+
+        if (!$wd || $wd['forfeit']) {
+            return 0.0;
+        }
+
+        for ($dow = 1; $dow <= 5; $dow++) {
+            if (empty($wd['days'][$dow])) {
+                return 0.0;
+            }
+        }
+
+        return 8.0;
     }
 
     // --------------------------------------------------------

@@ -499,8 +499,13 @@ function uploadFile(array $file, string $type = 'photo'): array {
         return ['success' => false, 'message' => "Invalid file type. Allowed: {$allowedLabel}"];
     }
 
-    $ext     = pathinfo($file['name'], PATHINFO_EXTENSION);
-    $filename= $type . '_' . time() . '_' . bin2hex(random_bytes(8)) . '.' . strtolower($ext);
+ $allowedExtensions = ['jpg', 'jpeg', 'png', 'pdf'];
+    $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+    if (!in_array($ext, $allowedExtensions, true)) {
+        return ['success' => false, 'message' => 'Invalid file extension.'];
+    }
+
+    $filename = $type . '_' . time() . '_' . bin2hex(random_bytes(8)) . '.' . $ext;
     $subDir  = match($type) {
         'photo'    => 'photos/',
         'passbook' => 'passbooks/',
@@ -511,11 +516,18 @@ function uploadFile(array $file, string $type = 'photo'): array {
     $uploadDir = UPLOAD_PATH . $subDir;
     if (!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
 
-    $destination = $uploadDir . $filename;
+    // Canonical path validation: ensure destination stays inside UPLOAD_PATH
+    $realUploadRoot = realpath(UPLOAD_PATH);
+    $realTargetDir  = realpath($uploadDir);
+    if ($realUploadRoot === false || $realTargetDir === false
+        || !str_starts_with($realTargetDir . DIRECTORY_SEPARATOR, $realUploadRoot . DIRECTORY_SEPARATOR)) {
+        return ['success' => false, 'message' => 'Invalid upload path'];
+    }
+
+    $destination = $realTargetDir . DIRECTORY_SEPARATOR . $filename;
     if (!move_uploaded_file($file['tmp_name'], $destination)) {
         return ['success' => false, 'message' => 'Failed to save file'];
     }
-
     return [
         'success'  => true,
         'path'     => $subDir . $filename,

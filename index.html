@@ -1007,7 +1007,10 @@ body {
         <div class="section-body">
           <div class="payroll-cal-wrap">
             <table class="payroll-cal" id="attendanceCal">
-              <!-- Rendered by JS -->
+              <thead></thead>
+              <tbody>
+                <!-- Rendered by JS -->
+              </tbody>
             </table>
           </div>
           <div style="margin-top:16px;display:flex;gap:16px;font-size:12px;color:var(--text-muted);flex-wrap:wrap">
@@ -1023,6 +1026,7 @@ body {
     <!-- ─── PAYROLL PAGE ───────────────────── -->
     <div class="page-view" id="page-payroll">
       <div class="search-bar">
+        <label for="payrollMonthSel" class="visually-hidden">Select Month</label>
         <select class="form-select" style="width:auto" id="payrollMonthSel" onchange="loadPayroll()">
 </select>
 
@@ -1108,15 +1112,15 @@ body {
         <div class="ps-body">
           <!-- Employee Info -->
           <div class="ps-emp-info">
-            <div class="ps-info-item"><label>Employee Name / 성명</label><span>Kim Junho (김준호)</span></div>
-            <div class="ps-info-item"><label>Employee ID / 직원번호</label><span>EMP001</span></div>
-            <div class="ps-info-item"><label>Employee Type / 직원구분</label><span>Korean Employee</span></div>
-            <div class="ps-info-item"><label>Hourly Rate / 시급</label><span>₩13,000</span></div>
-            <div class="ps-info-item"><label>Tax Rate / 세율</label><span>3.3%</span></div>
-            <div class="ps-info-item"><label>Payment Date / 지급일</label><span>2026-05-28</span></div>
-            <div class="ps-info-item"><label>Bank / 은행</label><span>ABC Bank</span></div>
-            <div class="ps-info-item"><label>Account No. / 계좌번호</label><span>123-456-789012</span></div>
-            <div class="ps-info-item"><label>Payment Method / 지급방법</label><span>Bank Transfer</span></div>
+            <div class="ps-info-item"><span class="ps-label">Employee Name / 성명</span><span>Kim Junho (김준호)</span></div>
+            <div class="ps-info-item"><span class="ps-label">Employee ID / 직원번호</span><span>EMP001</span></div>
+            <div class="ps-info-item"><span class="ps-label">Employee Type / 직원구분</span><span>Korean Employee</span></div>
+            <div class="ps-info-item"><span class="ps-label">Hourly Rate / 시급</span><span>₩13,000</span></div>
+            <div class="ps-info-item"><span class="ps-label">Tax Rate / 세율</span><span>3.3%</span></div>
+            <div class="ps-info-item"><span class="ps-label">Payment Date / 지급일</span><span>2026-05-28</span></div>
+            <div class="ps-info-item"><span class="ps-label">Bank / 은행</span><span>ABC Bank</span></div>
+            <div class="ps-info-item"><span class="ps-label">Account No. / 계좌번호</span><span>123-456-789012</span></div>
+            <div class="ps-info-item"><span class="ps-label">Payment Method / 지급방법</span><span>Bank Transfer</span></div>
           </div>
 
           <!-- Attendance Calendar -->
@@ -1552,31 +1556,31 @@ body {
         <div id="emp-tab-personal" class="tab-content active">
           <div class="row g-3">
             <div class="col-md-3">
-              <label class="form-label">Employee ID *</label>
+              <label for="empId" class="form-label">Employee ID *</label>
               <input type="text" class="form-control" placeholder="EMP001" id="empId">
             </div>
             <div class="col-md-5">
-              <label class="form-label">Full Name *</label>
+              <label for="empName" class="form-label">Full Name *</label>
               <input type="text" class="form-control" placeholder="Full name" id="empName">
             </div>
             <div class="col-md-4">
-              <label class="form-label">Employee Type *</label>
+              <label for="empType" class="form-label">Employee Type *</label>
               <select class="form-select" id="empType"><option>Korean Employee</option><option>Foreign Employee</option></select>
             </div>
             <div class="col-md-4">
-              <label class="form-label">Phone *</label>
+              <label for="empPhone" class="form-label">Phone *</label>
               <input type="text" class="form-control" placeholder="+82 10-0000-0000" id="empPhone">
             </div>
             <div class="col-md-4">
-              <label class="form-label">Email</label>
+              <label for="empEmail" class="form-label">Email</label>
               <input type="email" class="form-control" placeholder="optional" id="empEmail">
             </div>
             <div class="col-md-4">
-              <label class="form-label">Emergency Contact</label>
+              <label for="empEmergency" class="form-label">Emergency Contact</label>
               <input type="text" class="form-control" id="empEmergency">
             </div>
             <div class="col-md-4">
-              <label class="form-label">Country / Nationality *</label>
+              <label for="empCountry" class="form-label">Country / Nationality *</label>
               <input type="text" class="form-control" placeholder="South Korea" id="empCountry">
             </div>
             <div class="col-md-4">
@@ -2730,10 +2734,10 @@ async function calcAttFromTimes() {
   const type   = document.getElementById('attTypeModal')?.value;
   const dateVal= document.getElementById('attDateModal')?.value;
 
-  const ciH = parseInt(document.getElementById('attCheckInH')?.value  || '9');
-  const ciM = parseInt(document.getElementById('attCheckInM')?.value  || '0');
-  const coH = parseInt(document.getElementById('attCheckOutH')?.value || '18');
-  const coM = parseInt(document.getElementById('attCheckOutM')?.value || '0');
+  const ciH = Number.parseInt(document.getElementById('attCheckInH')?.value  || '9');
+  const ciM = Number.parseInt(document.getElementById('attCheckInM')?.value  || '0');
+  const coH = Number.parseInt(document.getElementById('attCheckOutH')?.value || '18');
+  const coM = Number.parseInt(document.getElementById('attCheckOutM')?.value || '0');
 
   // 24 = midnight = hour 0
   const inH24  = ciH === 24 ? 0 : ciH;

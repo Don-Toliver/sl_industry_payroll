@@ -30,20 +30,13 @@ function encryptField(?string $value): ?string {
     }
 
     // Generate a secure IV and encrypt the value using AES-256-CBC.
-    $iv = random_bytes(16);
-    $enc = openssl_encrypt(
-        $value,
-        'AES-256-CBC',
-        getEncryptionKey(),
-        OPENSSL_RAW_DATA,
-        $iv
-    );
+    $iv  = random_bytes(16);
+    $enc = openssl_encrypt($value, 'AES-256-CBC', getEncryptionKey(), OPENSSL_RAW_DATA, $iv);
     if ($enc === false) {
         return null;
     }
 
-    $payload = $iv . $enc;
-    return base64_encode($payload);
+    return base64_encode($iv . $enc);
 }
 
 function decryptField(?string $encrypted): ?string {
@@ -66,7 +59,11 @@ function decryptField(?string $encrypted): ?string {
         $iv
     );
 
-    return $dec !== false ? $dec : null;
+    if ($dec === false) {
+        return null;
+    }
+
+    return $dec;
 }
 
 /** One-way hash for duplicate detection (never decrypt needed) */

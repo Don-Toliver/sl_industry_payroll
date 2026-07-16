@@ -19,30 +19,61 @@ require_once __DIR__ . '/database.php';
 // Never hard-code the key here in production.
 // ============================================================
 function getEncryptionKey(): string {
-    $key = getenv('SL_ENCRYPT_KEY') ?: 'SL_INDUSTRY_DEFAULT_KEY_CHANGE_ME_IN_PRODUCTION!';
+    $key = getenv('SL_ENCRYPT_KEY');
+    $key = $key === false ? 'SL_INDUSTRY_DEFAULT_KEY_CHANGE_ME_IN_PRODUCTION!' : $key;
     return substr(hash('sha256', $key, true), 0, 32);
 }
 
 function encryptField(?string $value): ?string {
-    if ($value === null || $value === '') return null;
-    $iv  = random_bytes(16);
-    $enc = openssl_encrypt($value, 'AES-256-CBC', getEncryptionKey(), OPENSSL_RAW_DATA, $iv);
-    return base64_encode($iv . $enc);
+    if ($value === null || $value === '') {
+        return null;
+    }
+
+    // Generate a secure IV and encrypt the value using AES-256-CBC.
+    $iv = random_bytes(16);
+    $enc = openssl_encrypt(
+        $value,
+        'AES-256-CBC',
+        getEncryptionKey(),
+        OPENSSL_RAW_DATA,
+        $iv
+    );
+    if ($enc === false) {
+        return null;
+    }
+
+    $payload = $iv . $enc;
+    return base64_encode($payload);
 }
 
 function decryptField(?string $encrypted): ?string {
-    if ($encrypted === null || $encrypted === '') return null;
-    $raw = base64_decode($encrypted);
-    if (strlen($raw) < 17) return null;
+    if ($encrypted === null || $encrypted === '') {
+        return null;
+    }
+
+    $raw = base64_decode($encrypted, true);
+    if ($raw === false || strlen($raw) < 17) {
+        return null;
+    }
+
     $iv  = substr($raw, 0, 16);
     $enc = substr($raw, 16);
-    $dec = openssl_decrypt($enc, 'AES-256-CBC', getEncryptionKey(), OPENSSL_RAW_DATA, $iv);
+    $dec = openssl_decrypt(
+        $enc,
+        'AES-256-CBC',
+        getEncryptionKey(),
+        OPENSSL_RAW_DATA,
+        $iv
+    );
+
     return $dec !== false ? $dec : null;
 }
 
 /** One-way hash for duplicate detection (never decrypt needed) */
 function hashField(?string $value): ?string {
-    if ($value === null || $value === '') return null;
+    if ($value === null || $value === '') {
+        return null;
+    }
     return hash('sha256', strtolower(trim($value)));
 }
 
@@ -86,11 +117,15 @@ function calculateAttendanceFromTimes(
     $inSec  = timeToSeconds($checkIn);
     $outSec = timeToSeconds($checkOut);
 
-    if ($inSec === null || $outSec === null) return $result;
+    if ($inSec === null || $outSec === null) {
+        return $result;
+    }
 
     // Handle overnight: if checkout <= checkin treat as next-day
-     $isOvernight = ($outSec <= $inSec);
-    if ($isOvernight) $outSec += 86400;
+    $isOvernight = ($outSec <= $inSec);
+    if ($isOvernight) {
+        $outSec += 86400;
+    }
 
     $durationSec = $outSec - $inSec;
     $durationHrs = $durationSec / 3600.0;
@@ -98,7 +133,9 @@ function calculateAttendanceFromTimes(
     // Deduct lunch only if shift is long enough to have a break
     $actualLunch = ($durationHrs > $lunchHrs) ? $lunchHrs : 0.0;
     $workedHrs   = $durationHrs - $actualLunch;
-    if ($workedHrs < 0) $workedHrs = 0.0;
+    if ($workedHrs < 0) {
+        $workedHrs = 0.0;
+    }
 
     $result['total_duration_hours']  = round($durationHrs, 2);
     $result['lunch_deduction_hours'] = round($actualLunch, 2);
@@ -125,7 +162,9 @@ function calculateAttendanceFromTimes(
 /** Convert "HH:MM" or "HH:MM:SS" to seconds since midnight, or null on error */
 function timeToSeconds(string $time): ?int {
     $parts = explode(':', $time);
-    if (count($parts) < 2) return null;
+    if (count($parts) < 2) {
+        return null;
+    }
     $h = (int)$parts[0];
     $m = (int)$parts[1];
     $s = isset($parts[2]) ? (int)$parts[2] : 0;
@@ -144,15 +183,30 @@ function timeToSeconds(string $time): ?int {
  */
 function calculateNightAllowance(string $checkOut, int $dayOfWeek): float {
     $parts = explode(':', $checkOut);
-    if (count($parts) < 2) return 0.0;
+    if (count($parts) < 2) {
+        return 0.0;
+    }
 
     $h = (int)$parts[0];
     $m = (int)$parts[1];
 
-    $isNightWindow = ($h === 0 && $m >= 30) || ($h >= 1 && $h <= 11);
-    if (!$isNightWindow) return 0.0;
+    // Night allowance rules:
+    //  - 20:00 - 23:59 or 00:00 => 2 hrs
+    //  - 00:01 - 05:59 => 3 hrs
+    //  - 06:00 - 19:59 => 0 hrs
+    if ($h === 0) {
+        return $m === 0 ? 2.0 : 3.0;
+    }
 
-    return ($dayOfWeek === 6) ? 2.0 : 3.0;
+    if ($h >= 20 && $h <= 23) {
+        return 2.0;
+    }
+
+    if ($h >= 1 && $h <= 5) {
+        return 3.0;
+    }
+
+    return 0.0;
 }
 
 // ============================================================
@@ -237,7 +291,9 @@ function formatNumber(float $amount, int $decimals = 2): string {
 }
 
 function formatDate(string $date, string $format = 'Y년 m월 d일'): string {
-    if (empty($date)) return '-';
+    if (empty($date)) {
+        return '-';
+    }
     return date($format, strtotime($date));
 }
 
@@ -363,16 +419,19 @@ function generateKoreanHolidaysForYear(int $year): array {
     $clusters = [];
     $used = [];
     foreach ($dates as $d) {
-        if (isset($used[$d])) continue;
+        if (isset($used[$d])) {
+            continue;
+        }
         $info = $holidays[$d];
-        if ($info['sub'] === 'none') continue;
+        if ($info['sub'] === 'none') {
+            continue;
+        }
         if (in_array($info['en'], ['Seollal Eve','Seollal','Seollal Holiday','Chuseok Eve','Chuseok','Chuseok Holiday'])) {
-            $base = $info['en'] === 'Seollal Eve' ? $d
-                  : ($info['en'] === 'Seollal' ? date('Y-m-d', strtotime($d.' -1 day'))
-                  : ($info['en'] === 'Chuseok Eve' ? $d
-                  : ($info['en'] === 'Chuseok' ? date('Y-m-d', strtotime($d.' -1 day')) : date('Y-m-d', strtotime($d.' -2 day')))));
+            $base = $this->determineClusterBase($info['en'], $d);
             $c = [$base, date('Y-m-d', strtotime($base.' +1 day')), date('Y-m-d', strtotime($base.' +2 day'))];
-            foreach ($c as $cd) $used[$cd] = true;
+            foreach ($c as $cd) {
+                $used[$cd] = true;
+            }
             $clusters[] = $c;
         } else {
             $used[$d] = true;
@@ -385,14 +444,28 @@ function generateKoreanHolidaysForYear(int $year): array {
         $overlaps = false;
         foreach ($cluster as $cd) {
             $dow = (int)date('N', strtotime($cd)); // 6=Sat, 7=Sun
-            if ($mode === 'sunday' ? $dow === 7 : $dow >= 6) { $overlaps = true; break; }
+            if ($mode === 'sunday') {
+                if ($dow === 7) {
+                    $overlaps = true;
+                    break;
+                }
+            } else {
+                if ($dow >= 6) {
+                    $overlaps = true;
+                    break;
+                }
+            }
         }
-        if (!$overlaps) continue;
+        if (!$overlaps) {
+            continue;
+        }
 
         $cursor = date('Y-m-d', strtotime(end($cluster).' +1 day'));
         while (true) {
             $dow = (int)date('N', strtotime($cursor));
-            if ($dow < 6 && !isset($holidays[$cursor])) break;
+            if ($dow < 6 && !isset($holidays[$cursor])) {
+                break;
+            }
             $cursor = date('Y-m-d', strtotime($cursor.' +1 day'));
         }
         $srcName = $holidays[$cluster[0]]['en'];
@@ -427,7 +500,9 @@ function ensureKoreanHolidaysForYear(int $year): int {
             "INSERT IGNORE INTO korean_public_holidays (holiday_date,holiday_name_en,holiday_name_kr,is_recurring) VALUES (?,?,?,?)",
             [$r['holiday_date'], $r['holiday_name_en'], $r['holiday_name_kr'], $r['is_recurring']]
         );
-        if ($ok) $inserted++;
+        if ($ok) {
+            $inserted++;
+        }
     }
     return $inserted;
 }
@@ -457,7 +532,9 @@ function logActivity(string $action, string $module, int $recordId = 0, string $
 // ============================================================
 function lang(string $key, ?string $fallback = null): string {
     global $translations;
-    if (!isset($translations)) loadTranslations($_SESSION['lang'] ?? 'en');
+    if (!isset($translations)) {
+        loadTranslations($_SESSION['lang'] ?? 'en');
+    }
     return $translations[$key] ?? ($fallback ?? $key);
 }
 
@@ -514,7 +591,9 @@ function uploadFile(array $file, string $type = 'photo'): array {
     };
 
     $uploadDir = UPLOAD_PATH . $subDir;
-    if (!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
+    if (!is_dir($uploadDir)) {
+        mkdir($uploadDir, 0755, true);
+    }
 
     // Canonical path validation: ensure destination stays inside UPLOAD_PATH
     $realUploadRoot = realpath(UPLOAD_PATH);

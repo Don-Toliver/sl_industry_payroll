@@ -1183,7 +1183,74 @@ if ($action === 'get_paysheet') {
         fail('Missing employee_id.');
     }
 
-    // Always recalculate live from attendance so values are always accurate
+    // If this period is already approved/paid, serve the frozen payroll_records
+    // snapshot instead of live-recalculating (pending advances/due-salary would
+    // otherwise double-count into every later month).
+    $period = db()->fetchOne(
+        "SELECT id, status FROM payroll_periods WHERE period_year=? AND period_month=?",
+        [$year, $month]
+    );
+
+    if ($period && in_array($period['status'], ['approved', 'paid'], true)) {
+        $saved = db()->fetchOne(
+            "SELECT pr.*, e.full_name, e.employee_id AS emp_code, e.employee_type,
+                    e.bank_name, e.account_number, e.account_holder_name, e.phone
+             FROM payroll_records pr
+             JOIN employees e ON pr.employee_id = e.id
+             WHERE pr.payroll_period_id=? AND pr.employee_id=?",
+            [$period['id'], $empId]
+        );
+        if ($saved) {
+            $attendance = db()->fetchAll(
+                "SELECT a.*, k.holiday_name_en as holiday_name FROM attendance a
+                 LEFT JOIN korean_public_holidays k ON a.attendance_date=k.holiday_date
+                 WHERE a.employee_id=? AND YEAR(a.attendance_date)=? AND MONTH(a.attendance_date)=?
+                 ORDER BY a.attendance_date",
+                [$empId, $year, $month]
+            );
+            $record = [
+                'full_name'              => $saved['full_name'],
+                'emp_code'               => $saved['emp_code'],
+                'employee_type'          => $saved['employee_type'],
+                'hourly_rate'            => $saved['hourly_rate'],
+                'tax_rate'               => $saved['tax_rate'],
+                'bank_name'              => $saved['bank_name'],
+                'account_number'         => $saved['account_number'],
+                'account_holder_name'    => $saved['account_holder_name'],
+                'phone'                  => $saved['phone'],
+                'period_year'            => $year,
+                'period_month'           => $month,
+                'status'                 => $saved['status'],
+                'basic_salary'           => $saved['basic_salary'],
+                'overtime_pay'           => $saved['overtime_pay'],
+                'night_allowance'        => $saved['night_allowance'],
+                'holiday_pay'            => $saved['holiday_pay'],
+                'sunday_bonus'           => $saved['sunday_bonus'],
+                'sunday_bonus_weeks'     => $saved['sunday_bonus_weeks'],
+                'sunday_bonus_hours'     => 0,
+                'due_salary_added'       => $saved['due_salary_added'],
+                'gross_salary'           => $saved['gross_salary'],
+                'tax_amount'             => $saved['tax_amount'],
+                'advance_deduction'      => $saved['advance_deduction'],
+                'unpaid_leave_deduction' => $saved['unpaid_leave_deduction'],
+                'total_deductions'       => $saved['total_deductions'],
+                'net_salary'             => $saved['net_salary'],
+                'due_salary_carried'     => $saved['due_salary_carried'],
+                'total_work_days'        => $saved['total_work_days'],
+                'total_work_hours'       => $saved['total_work_hours'],
+                'overtime_hours'         => $saved['overtime_hours'],
+                'night_shift_hours'      => $saved['night_shift_hours'],
+                'holiday_hours'          => $saved['holiday_hours'],
+                'absent_days'            => $saved['absent_days'],
+                'unpaid_leave_days'      => $saved['unpaid_leave_days'],
+            ];
+            ok(['record' => $record, 'attendance' => $attendance]);
+        }
+        // No saved row yet for a settled period (shouldn't normally happen) —
+        // fall through to live recalculation below.
+    }
+
+    // Live recalculate from attendance (current/draft month, or no saved record yet)
     $engine = new PayrollEngine();
     try {
         $calc = $engine->calculateEmployeePayroll($empId, $year, $month);
@@ -1191,8 +1258,7 @@ if ($action === 'get_paysheet') {
         fail($e->getMessage());
     }
 
-    $attendance = db()->fetchAll(
-        "SELECT a.*, k.holiday_name_en as holiday_name FROM attendance a
+    $attendance = db()->fetchAll(  "SELECT a.*, k.holiday_name_en as holiday_name FROM attendance a
          LEFT JOIN korean_public_holidays k ON a.attendance_date=k.holiday_date
          WHERE a.employee_id=? AND YEAR(a.attendance_date)=? AND MONTH(a.attendance_date)=?
          ORDER BY a.attendance_date",

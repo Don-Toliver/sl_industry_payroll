@@ -88,14 +88,14 @@ class PayrollEngine {
         $overtimePay    = $summary['total_overtime_hours'] * $hourlyRate * $overtimeMult;
         $nightAllowance = $summary['total_night_hours']    * $hourlyRate;
         $holidayPay     = $summary['total_holiday_hours']  * $hourlyRate * $holidayMult;
-        $dueSalaryAdded = $this->getPendingDueSalary($employeeId);
+       $dueSalaryAdded = $this->getPendingDueSalary($employeeId, $periodEnd);
 
         $taxableGross = $basicSalary + $overtimePay + $nightAllowance + $holidayPay + $sundayBonus;
         $grossSalary  = $taxableGross + $dueSalaryAdded;
 
         // ── Deductions ───────────────────────────────────────
         $taxAmount            = $taxableGross * ($taxRate / 100);
-        $advanceDeduction     = $this->getPendingAdvances($employeeId);
+       $advanceDeduction     = $this->getPendingAdvances($employeeId, $periodEnd);
         $unpaidLeaveDeduction = $summary['unpaid_leave_days'] * $stdHours * $hourlyRate;
         $totalDeductions      = $taxAmount + $advanceDeduction + $unpaidLeaveDeduction;
 
@@ -494,18 +494,24 @@ class PayrollEngine {
     // --------------------------------------------------------
     // HELPERS
     // --------------------------------------------------------
-    private function getPendingAdvances(int $employeeId): float {
+     private function getPendingAdvances(int $employeeId, string $periodEnd): float {
+        // Only count advances taken on or before this period's end date —
+        // an advance given mid-July must not appear in June's paysheet.
         $r = db()->fetchOne(
-            "SELECT COALESCE(SUM(amount),0) AS total FROM salary_advances WHERE employee_id=? AND status='pending'",
-            [$employeeId]
+            "SELECT COALESCE(SUM(amount),0) AS total FROM salary_advances
+             WHERE employee_id=? AND status='pending' AND advance_date <= ?",
+            [$employeeId, $periodEnd]
         );
         return (float)($r['total'] ?? 0);
     }
 
-    private function getPendingDueSalary(int $employeeId): float {
+    private function getPendingDueSalary(int $employeeId, string $periodEnd): float {
+        // Same rule: a due-salary row created after this period's end
+        // must not be pulled into an earlier month's payroll.
         $r = db()->fetchOne(
-            "SELECT COALESCE(SUM(amount),0) AS total FROM due_salaries WHERE employee_id=? AND status='pending'",
-            [$employeeId]
+            "SELECT COALESCE(SUM(amount),0) AS total FROM due_salaries
+             WHERE employee_id=? AND status='pending' AND DATE(created_at) <= ?",
+            [$employeeId, $periodEnd]
         );
         return (float)($r['total'] ?? 0);
     }

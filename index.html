@@ -275,15 +275,16 @@ body {
   font-size: 14px; font-family: var(--font-mono);
 }
 .payroll-cal th {
-  background: var(--bg-card2); color: var(--text-muted);
-  font-size: 12px; font-weight: 600; text-transform: uppercase;
+  background: var(--bg-card2); color: #000000;
+  font-size: 12px; font-weight: 700; text-transform: uppercase;
   letter-spacing: .8px; padding: 8px 6px; text-align: center;
-  border: 1px solid var(--border); white-space: nowrap;
+  border: 1px solid #8a93a1; white-space: nowrap;
 }
 .payroll-cal td {
-  padding: 5px 6px; text-align: center; border: 1px solid var(--border);
-  color: var(--text); font-size: 13px; white-space: nowrap;
+  padding: 5px 6px; text-align: center; border: 1px solid #8a93a1;
+  color: #000000; font-weight: 600; font-size: 13px; white-space: nowrap;
 }
+
 .payroll-cal td.day-num {
   background: var(--bg-card2); font-weight: 600; color: var(--text-muted);
   font-size: 12px; padding: 4px 5px;
@@ -617,7 +618,7 @@ body {
   <div class="sidebar-brand">
       <div class="brand-logo" id="brandLogo"><span id="brandLogoText">SL</span><img id="brandLogoImg" style="display:none;width:100%;height:100%;object-fit:cover;border-radius:10px;"></div>
     <div class="brand-text">
-      <div class="brand-name" data-lang-key="app_name">SL Industry</div>
+    <div class="brand-name" data-lang-key="app_name">SL 산업</div>
       <div class="brand-sub">Payroll System</div>
     </div>
   </div>
@@ -983,7 +984,7 @@ body {
         <button class="btn-primary-sl" onclick="showModal('addAttendanceModal')">
           <i class="fas fa-plus"></i> Add Attendance
         </button>
-        <button class="btn-secondary-sl" onclick="renderAttendanceCalendar(currentAttYear,currentAttMonth)" title="Refresh attendance"><i class="fas fa-sync"></i> Refresh</button>
+        <button class="btn-secondary-sl" onclick="resetAttendanceFilterAndRefresh()" title="Refresh attendance"><i class="fas fa-sync"></i> Refresh</button>
         <button class="btn-secondary-sl" onclick="exportAttendance()"><i class="fas fa-file-excel"></i> Export CSV</button>
       </div>
 
@@ -1555,8 +1556,10 @@ body {
         <div class="row g-3">
           <div class="col-md-6">
             <label class="form-label">Employee *</label>
-            <select class="form-select emp-select" id="attEmpModal"><option value="">-- Select Employee --</option></select>
+
+           <select class="form-select emp-select" id="attEmpModal" onchange="onAttEmpModalChange(this.value)"><option value="">-- Select Employee --</option></select>
           </div>
+
           <div class="col-md-6">
             <label class="form-label">Date *</label>
            <input type="date" class="form-control" id="attDateModal" lang="en-GB" onchange="calcAttFromTimes()">
@@ -1771,12 +1774,13 @@ let dbEmployees = [];
 let currentEditId = null;
 let currentAttEmpId = null;
 let currentAttYear = new Date().getFullYear();
+let priorityAttEmpId = null;
 let currentAttMonth = new Date().getMonth() + 1;
 
 // ── TRANSLATIONS ─────────────────────────────────
 const translations = {
   en: {
-    app_name:'SL Industry Payroll',dashboard:'Dashboard',employees:'Employees',
+    app_name:'SL 산업',dashboard:'Dashboard',employees:'Employees',
     attendance:'Attendance',payroll:'Payroll',reports:'Reports',settings:'Settings',
     logout:'Logout',total_employees:'Total Employees',active_employees:'Active Employees',
     payroll_this_month:'Payroll This Month',total_overtime:'Total Overtime',
@@ -1797,7 +1801,7 @@ const translations = {
     m7:'July',m8:'August',m9:'September',m10:'October',m11:'November',m12:'December',
   },
   kr: {
-    app_name:'SL 인더스트리 급여',dashboard:'대시보드',employees:'직원',
+    app_name:'SL 산업',dashboard:'대시보드',employees:'직원',
     attendance:'근태',payroll:'급여',reports:'보고서',settings:'설정',
     logout:'로그아웃',total_employees:'전체 직원',active_employees:'재직 직원',
     payroll_this_month:'이번 달 급여',total_overtime:'총 초과근무',
@@ -2044,6 +2048,7 @@ function populateEmployeeSelects(list) {
     sel.innerHTML='<option value="">-- Select Employee --</option>'+(list||[]).map(e=>`<option value="${e.id}">${e.full_name} — ${e.employee_id}</option>`).join('');
     sel.value=val;
   });
+
   populatePaysheetSelect(list);
   // Also populate attendance filter
   const attSel=document.getElementById('attEmpFilter');
@@ -2284,7 +2289,10 @@ async function renderAttendanceCalendar(year,month) {
   function dayColCls(dow){ return dow===0?'sun-col':dow===6?'sat-col':''; }
 
   const COLS=daysInMonth+1;
-  const empIds=Object.keys(byEmp);
+  let empIds=Object.keys(byEmp);
+  if(priorityAttEmpId && empIds.includes(priorityAttEmpId)){
+    empIds=[priorityAttEmpId, ...empIds.filter(id=>id!==priorityAttEmpId)];
+  }
   let html='';
 
   if(!empIds.length){
@@ -2293,28 +2301,31 @@ async function renderAttendanceCalendar(year,month) {
     return;
   }
 
- html='<thead>';
-  html+='<tr>';
-  html+='<th style="min-width:100px;text-align:left;padding-left:8px;font-size:12px">Item</th>';
-  for(let d=1;d<=daysInMonth;d++){
-    const dow=new Date(year,month-1,d).getDay();
-    const dateKey=`${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    const holName=holidayMap[dateKey];
-    const holCls=holName?' holiday-col':'';
-    const holTitle=holName?` title="${holName}"`:'';
-    html+=`<th class="${dayColCls(dow)}${holCls}" style="font-size:13px;padding:4px 3px;text-align:center"${holTitle}>${d}${holName?`<div class="holiday-tag">${holName}</div>`:''}</th>`;
+ function buildHeaderRows(){
+    let h='<tr>';
+    h+='<th style="min-width:100px;text-align:left;padding-left:8px;font-size:12px">Item</th>';
+    for(let d=1;d<=daysInMonth;d++){
+      const dow=new Date(year,month-1,d).getDay();
+      const dateKey=`${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      const holName=holidayMap[dateKey];
+      const holCls=holName?' holiday-col':'';
+      const holTitle=holName?` title="${holName}"`:'';
+      h+=`<th class="${dayColCls(dow)}${holCls}" style="font-size:13px;padding:4px 3px;text-align:center"${holTitle}>${d}${holName?`<div class="holiday-tag">${holName}</div>`:''}</th>`;
+    }
+    h+='<th style="font-size:12px;background:var(--primary);color:#fff;min-width:38px">Tot</th>';
+    h+='</tr>';
+    h+='<tr>';
+    h+='<th style="text-align:left;padding-left:8px;font-size:12px;color:var(--text-muted)">Day</th>';
+    for(let d=1;d<=daysInMonth;d++){
+      const dow=new Date(year,month-1,d).getDay();
+      h+=`<th class="${dayColCls(dow)}" style="font-size:12px;padding:3px;text-align:center;font-weight:400">${KO_DAY[dow]}</th>`;
+    }
+    h+='<th></th>';
+    h+='</tr>';
+    return h;
   }
-  html+='<th style="font-size:12px;background:var(--primary);color:#fff;min-width:38px">Tot</th>';
-  html+='</tr>';
-  html+='<tr>';
-  html+='<th style="text-align:left;padding-left:8px;font-size:12px;color:var(--text-muted)">Day</th>';
-  for(let d=1;d<=daysInMonth;d++){
-    const dow=new Date(year,month-1,d).getDay();
-    html+=`<th class="${dayColCls(dow)}" style="font-size:12px;padding:3px;text-align:center;font-weight:400">${KO_DAY[dow]}</th>`;
-  }
-  html+='<th></th>';
-  html+='</tr>';
-  html+='</thead><tbody>';
+
+ html='<thead></thead><tbody>';
 
   empIds.forEach((empId,ei)=>{
     const emp=byEmp[empId];
@@ -2329,16 +2340,17 @@ async function renderAttendanceCalendar(year,month) {
 
 
    if(ei>0) html+=`<tr><td colspan="${COLS+1}" style="height:6px;background:var(--bg-base);border:none;padding:0"></td></tr>`;
-    html+=`<tr onclick="toggleEmpRows('emp-rows-${empId}')" style="cursor:pointer">
-      <td colspan="${COLS+1}" style="background:var(--bg-card2);padding:5px 10px;font-size:12px;font-weight:700;color:var(--text);border-bottom:2px solid var(--border);user-select:none">
+    html+=`<tr onclick="toggleEmpRows('emp-rows-${empId}')" style="cursor:pointer"> <td colspan="${COLS+1}" style="background:var(--primary-light);padding:8px 12px;font-size:13px;font-weight:800;color:#000000;border-top:2px solid var(--primary);border-bottom:3px solid var(--primary);user-select:none">
+
         <span id="emp-arrow-${empId}" style="margin-right:6px;font-size:11px;transition:transform 0.2s;display:inline-block">▼</span>
-        ${emp.name} <span style="font-size:10px;color:var(--text-muted);font-weight:400;margin-left:6px">${emp.code}</span>
-        <span style="font-size:10px;font-weight:400;color:${emp.type==='korean'?'var(--success)':'var(--info)'};margin-left:8px;text-transform:uppercase">${emp.type}</span>
+        ${emp.name} <span style="font-size:10px;color:#000000;font-weight:600;margin-left:6px">${emp.code}</span>
+        <span style="font-size:10px;font-weight:700;color:#000000;margin-left:8px;text-transform:uppercase">${emp.type}</span>
       </td>
     </tr>`;
     html+=`<tbody id="emp-rows-${empId}">`;
+    html+=buildHeaderRows();
 
-    // Work row
+
     html+='<tr>';
     html+='<td class="att-row-label" style="color:var(--success)">Work</td>';
     for(let d=1;d<=daysInMonth;d++){
@@ -2654,6 +2666,15 @@ async function calcAttFromTimes() {
   document.getElementById('attCheckIn').value  = `${pad(inH24)}:${pad(ciM)}`;
   document.getElementById('attCheckOut').value = `${pad(outH24)}:${pad(coM)}`;
 
+  if (type === 'half_day') {
+    // Half day is always a fixed 4h, no lunch-break deduction —
+    // check-in/check-out times are only recorded, not used for calculation.
+    document.getElementById('attWorkHrs').value  = '4.0';
+    document.getElementById('attOTHrs').value    = '0.0';
+    document.getElementById('attNightHrs').value = '0.0';
+    return;
+  }
+
   if (!['full_day', 'half_day'].includes(type)) return;
 
  let inMins  = inH24  * 60 + ciM;
@@ -2718,10 +2739,10 @@ function initTimeSelectors() {
     sel.value = defaults[i];
   });
 
-  minIds.forEach(id => {
+ minIds.forEach(id => {
     const sel = document.getElementById(id);
     if (!sel) return;
-    for (let m = 0; m <= 59; m++) {
+    for (let m = 0; m <= 45; m += 15) {
       const o = document.createElement('option');
       o.value = m;
       o.textContent = String(m).padStart(2, '0');
@@ -2765,6 +2786,23 @@ function updateAttHours(){
   }
 }
 
+function resetAttendanceFilterAndRefresh(){
+  const filterSel=document.getElementById('attEmpFilter');
+  if(filterSel){ filterSel.value=''; }
+  const searchBox=document.getElementById('empSearchInput');
+  if(searchBox){ searchBox.value=''; }
+  currentAttEmpId=null;
+  priorityAttEmpId=null;
+  renderAttendanceCalendar(currentAttYear,currentAttMonth);
+}
+
+function onAttEmpModalChange(empId){
+  if(!empId) return;
+  // Don't filter — just bring this employee to the top of the full list
+  priorityAttEmpId=String(empId);
+  renderAttendanceCalendar(currentAttYear,currentAttMonth);
+}
+
 async function saveAttendance(){
   const get=id=>document.getElementById(id)?.value||'';
   const empId=get('attEmpModal');
@@ -2775,12 +2813,17 @@ async function saveAttendance(){
     holiday_hours:0,remarks:get('attRemarks'),
     is_manual_override:attHoursManuallyEdited?1:0};
   if(!data.attendance_date){showToast('Please select a date','error');return;}
-  const res=await api('save_attendance',data,'POST');
+
+ const res=await api('save_attendance',data,'POST');
   if(res?.success){
     showToast(res.message);
     const attModalEl=document.getElementById('addAttendanceModal');
     const attModal=bootstrap.Modal.getInstance(attModalEl)||new bootstrap.Modal(attModalEl);
     attModal.hide();
+
+   // Filter the main Attendance table down to the employee just added
+    // Bring this employee to the top of the full list (no filtering)
+    priorityAttEmpId=String(empId);
     renderAttendanceCalendar(currentAttYear,currentAttMonth);
   } else showToast(res?.error||'Save failed','error');
 }

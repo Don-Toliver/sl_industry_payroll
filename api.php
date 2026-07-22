@@ -1,33 +1,5 @@
 <?php
-// ============================================================
-// SL INDUSTRY - Unified API  (v3)
-// ============================================================
-// Changes from v2:
-//
-//   SMART ATTENDANCE AUTO-CALCULATION (new business rules):
-//     save_attendance now accepts only employee, date, check-in,
-//     check-out. All computed values (work_hours, overtime_hours,
-//     night_shift_hours, total_duration, lunch_deduction) are
-//     derived automatically by calculateAttendanceFromTimes().
-//     Admin can set is_manual_override=1 to supply custom values.
-//
-//   WEEKLY SUNDAY BONUS:
-//     Bonus logic moved to PayrollEngine (per-ISO-week).
-//     API passes through sunday_bonus_weeks for display.
-//
-//   ENCRYPTION:
-//     account_number and id_card_passport_number are encrypted
-//     before storage via encryptField(). Duplicates detected via
-//     hashField() SHA-256 hashes.
-//
-//   COMPLIANCE (new requirements):
-//     - Sensitive field encryption on save / decrypt on read.
-//     - audit log for attendance deletion (MAJ-04).
-//     - is_manual_override flag tracked in audit log.
-//     - is_holiday auto-set (MIN-01).
-//     - Soft-deleted employee guard (MIN-04).
-//     - All previous MAJ/CRIT fixes preserved.
-// ============================================================
+
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/PayrollEngine.php';
 
@@ -1192,15 +1164,16 @@ if ($action === 'get_paysheet') {
     );
 
     if ($period && in_array($period['status'], ['approved', 'paid'], true)) {
-        $saved = db()->fetchOne(
+       $saved = db()->fetchOne(
             "SELECT pr.*, e.full_name, e.employee_id AS emp_code, e.employee_type,
-                    e.bank_name, e.account_number, e.account_holder_name, e.phone
+                    e.bank_name, e.account_number_enc, e.account_holder_name, e.phone
              FROM payroll_records pr
              JOIN employees e ON pr.employee_id = e.id
              WHERE pr.payroll_period_id=? AND pr.employee_id=?",
             [$period['id'], $empId]
         );
         if ($saved) {
+            $saved['account_number'] = decryptField($saved['account_number_enc'] ?? null);
             $attendance = db()->fetchAll(
                 "SELECT a.*, k.holiday_name_en as holiday_name FROM attendance a
                  LEFT JOIN korean_public_holidays k ON a.attendance_date=k.holiday_date

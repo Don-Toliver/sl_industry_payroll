@@ -1,15 +1,5 @@
 <?php
-// ============================================================
-// SL INDUSTRY - Core Helper Functions  (v3)
-// ============================================================
-// Changes from v2:
-//   - encryptField() / decryptField() for AES-256-CBC encryption
-//     of bank account numbers and passport/ID numbers.
-//   - hashField() for SHA-256 duplicate-detection hashes.
-//   - uploadFile() uses image-only MIME for photos (MAJ-05 fix).
-//   - calculateAttendanceFromTimes() — new: computes all
-//     attendance values from check-in / check-out alone.
-// ============================================================
+
 
 require_once __DIR__ . '/database.php';
 
@@ -74,11 +64,7 @@ function hashField(?string $value): ?string {
     return hash('sha256', strtolower(trim($value)));
 }
 
-// ============================================================
-// SMART ATTENDANCE CALCULATOR
-// Given check-in, check-out and day-of-week, returns all
-// computed attendance values conforming to business rules.
-//
+
 // Rules applied:
 //   1. Total duration = checkout − checkin (overnight handled)
 //   2. Lunch deduction = 1 hour (configurable), only if duration > 1hr
@@ -107,6 +93,17 @@ function calculateAttendanceFromTimes(
 
     // Non-productive types: all zeros
     if (!in_array($attendanceType, ['full_day', 'half_day'])) {
+        return $result;
+    }
+
+    // Half day is always a fixed 4h, no lunch-break deduction — check-in/
+    // check-out are recorded but not used to calculate hours.
+    if ($attendanceType === 'half_day') {
+        $result['total_duration_hours']  = 4.0;
+        $result['lunch_deduction_hours'] = 0.0;
+        $result['work_hours']            = 4.0;
+        $result['overtime_hours']        = 0.0;
+        $result['night_shift_hours']     = 0.0;
         return $result;
     }
 
@@ -187,10 +184,11 @@ function calculateNightAllowance(string $checkOut, int $dayOfWeek): float {
     $h = (int)$parts[0];
     $m = (int)$parts[1];
 
-    // Night allowance rules:
-    //  - 20:00 - 23:59 or 00:00 => 2 hrs
-    //  - 00:01 - 05:59 => 3 hrs
-    //  - 06:00 - 19:59 => 0 hrs
+    // Night allowance rules (aligned with frontend calcAttFromTimes()):
+    //  - checkout 20:00 - 23:59 (evening finish, not overnight) => 2 hrs
+    //  - checkout 00:00 (exactly midnight) => 2 hrs
+    //  - checkout 00:01 - 11:59 (overnight, worked past 24:30) => 3 hrs
+    //  - checkout 12:00 - 19:59 => 0 hrs
     if ($h === 0) {
         return $m === 0 ? 2.0 : 3.0;
     }
@@ -199,7 +197,7 @@ function calculateNightAllowance(string $checkOut, int $dayOfWeek): float {
         return 2.0;
     }
 
-    if ($h >= 1 && $h <= 5) {
+    if ($h >= 1 && $h <= 11) {
         return 3.0;
     }
 
@@ -325,21 +323,6 @@ function isHoliday(string $date): bool {
     return $row !== null;
 }
 
-// ============================================================
-// KOREAN PUBLIC HOLIDAY AUTO-GENERATION
-// ------------------------------------------------------------
-// Fixed-date (solar) holidays are computed for ANY year.
-// Lunar-calendar holidays (Seollal, Chuseok, Buddha's Birthday)
-// cannot be derived with simple arithmetic — Korea uses the
-// East-Asian lunisolar calendar, whose new-moon/leap-month
-// dates require real astronomical calculation. Instead we ship
-// an official lookup table (verified against government /
-// published sources) covering 2020-2030. Outside that range the
-// fixed-date holidays are still auto-generated correctly; only
-// the 3 lunar holidays need a manual one-time entry via the
-// "Add Holiday" form (extend the table below once official
-// dates are published, usually ~1-2 years ahead).
-// ============================================================
 
 // Main lunar-holiday day for each year (Y-m-d, main day only)
 const KR_LUNAR_HOLIDAYS = [
@@ -639,3 +622,5 @@ function paginate(int $total, int $perPage, int $currentPage): array {
         'has_next'     => $currentPage < $totalPages,
     ];
 }
+
+

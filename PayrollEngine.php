@@ -1,31 +1,5 @@
 <?php
-// ============================================================
-// SL INDUSTRY - Payroll Calculation Engine  (v3)
-// ============================================================
-// Changes from v2:
-//
-//   SMART ATTENDANCE (from business rules doc v2):
-//     calculateEmployeePayroll() now reads pre-computed
-//     work_hours / overtime_hours / night_shift_hours that
-//     were auto-calculated at attendance-save time by
-//     calculateAttendanceFromTimes() in helpers.php.
-//     The engine no longer needs to reclassify hours —
-//     that is already done at data-entry time.
-//
-//   WEEKLY SUNDAY BONUS (new rule):
-//     Bonus is awarded PER QUALIFYING WEEK (Mon–Fri all
-//     attended, no absent / unpaid_leave in that ISO week).
-//     Each qualifying week = 8 hrs × hourly_rate.
-//     A month with 4 qualifying weeks → 4 × 8 hrs bonus.
-//     (Previously the whole month was one binary check.)
-//
-//   ENCRYPTION:
-//     account_number and id_card_passport_number are read
-//     from encrypted columns via decryptField().
-//
-//   All prior fixes (CRIT-01..03, MAJ-01..07, MIN-01..04)
-//   are preserved.
-// ============================================================
+
 
 require_once __DIR__ . '/helpers.php';
 
